@@ -1,6 +1,6 @@
 (()=>{
   const slides=[
-    {image:'https://images.unsplash.com/photo-1741889823656-c056b0c43749?auto=format&fit=crop&w=2200&q=85',label:'BMW M4',position:'center 58%'},
+    {image:'assets/hero.jpg',label:'European performance',position:'center 58%'},
     {image:'https://images.unsplash.com/photo-1774066811800-448b846647a2?auto=format&fit=crop&w=2200&q=85',label:'Mercedes-AMG GT',position:'center 55%'},
     {image:'https://images.unsplash.com/photo-1762028159677-e45ac537a29a?auto=format&fit=crop&w=2200&q=85',label:'Audi RS6',position:'center 55%'},
     {image:'https://images.unsplash.com/photo-1591076898712-f658e1e7edfb?auto=format&fit=crop&w=2200&q=85',label:'Porsche 911',position:'center 58%'},
