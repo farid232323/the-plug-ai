@@ -8,15 +8,19 @@
     .product-card .tp-product-image-missing{min-height:210px;height:100%;border:0;background:#f7f9fa}
     #product .tp-gallery-missing{width:100%;min-height:420px;border:1px solid #e4e8eb;background:#fafcfd;display:grid;place-items:center;text-align:center;color:#6f7b84;font-size:15px;padding:28px}
 
-    /* Staging-style logo laminate: a narrow highlight that travels through the logo itself. */
+    /* Logo laminate is deliberately clipped to the exact logo image bounds. */
     .tp-logo-shine-host{
       position:relative!important;
+      display:inline-block!important;
       overflow:hidden!important;
       isolation:isolate;
+      line-height:0!important;
       background:transparent!important;
       box-shadow:none!important;
+      border:0!important;
     }
     .tp-logo-shine-host>img{
+      display:block!important;
       position:relative;
       z-index:1;
       background:transparent!important;
@@ -29,46 +33,41 @@
       z-index:2;
       pointer-events:none;
       background:linear-gradient(90deg,
-        rgba(248,255,102,0) 0%,
-        rgba(248,255,102,.12) 22%,
-        rgba(248,255,102,.55) 42%,
-        #F8FF66 50%,
-        rgba(248,255,102,.55) 58%,
-        rgba(248,255,102,.12) 78%,
-        rgba(248,255,102,0) 100%);
-      background-size:12% 100%;
+        transparent 0%,
+        rgba(248,255,102,.10) 34%,
+        rgba(248,255,102,.45) 43%,
+        #F8FF66 49%,
+        rgba(248,255,102,.55) 54%,
+        rgba(248,255,102,.12) 64%,
+        transparent 100%);
+      background-size:5.5% 100%;
       background-repeat:no-repeat;
-      background-position:-16% 0;
+      background-position:-7% 0;
       -webkit-mask-image:url('assets/logo.png');
       mask-image:url('assets/logo.png');
       -webkit-mask-repeat:no-repeat;
       mask-repeat:no-repeat;
       -webkit-mask-position:center;
       mask-position:center;
-      -webkit-mask-size:contain;
-      mask-size:contain;
+      -webkit-mask-size:100% 100%;
+      mask-size:100% 100%;
       opacity:0;
-      animation:tpLogoLaminate 3.6s linear infinite;
+      animation:tpLogoLaminate 3.8s linear infinite;
     }
     @keyframes tpLogoLaminate{
-      0%,18%{background-position:-16% 0;opacity:0}
-      22%{opacity:.9}
-      58%{background-position:116% 0;opacity:.9}
-      62%,100%{background-position:116% 0;opacity:0}
+      0%,20%{background-position:-7% 0;opacity:0}
+      23%{opacity:.9}
+      58%{background-position:107% 0;opacity:.9}
+      61%,100%{background-position:107% 0;opacity:0}
     }
 
-    /* Footer logo: no black tile/background; use a clean light logo on the dark footer. */
-    footer .tp-logo-shine-host,
-    footer .logo,
-    footer a.logo,
-    footer [class*="logo"]{
-      background:transparent!important;
-      box-shadow:none!important;
-      border:0!important;
-    }
-    footer .tp-logo-shine-host>img,
-    footer img[src*="logo"],
-    footer img[alt="The Plug"]{
+    /* Footer logo stays visible and has no tile/background. */
+    footer .footer-logo{background:transparent!important;box-shadow:none!important;border:0!important}
+    footer .tp-footer-logo-wrap{display:inline-block!important;background:transparent!important;box-shadow:none!important;border:0!important}
+    footer .tp-footer-logo-wrap>img{
+      display:block!important;
+      visibility:visible!important;
+      opacity:1!important;
       background:transparent!important;
       box-shadow:none!important;
       filter:brightness(0) invert(1)!important;
@@ -120,11 +119,23 @@
     }
   }
 
+  function wrapFooterLogo(img){
+    const parent=img.parentElement;if(!parent)return;
+    if(parent.classList.contains('tp-footer-logo-wrap')){parent.classList.add('tp-logo-shine-host');return}
+    /* Remove the shine host from the large footer column if an older version added it there. */
+    parent.classList.remove('tp-logo-shine-host');
+    const wrap=document.createElement('span');
+    wrap.className='tp-footer-logo-wrap tp-logo-shine-host';
+    parent.insertBefore(wrap,img);
+    wrap.appendChild(img);
+  }
+
   function applyLogoShine(root=document){
-    root.querySelectorAll?.('header img[src*="logo"],footer img[src*="logo"],img[alt="The Plug"]').forEach(img=>{
+    root.querySelectorAll?.('header img[src*="logo"],header img[alt="The Plug"]').forEach(img=>{
       const host=img.parentElement;if(!host)return;
       host.classList.add('tp-logo-shine-host');
     });
+    root.querySelectorAll?.('footer img[src*="logo"],footer img[alt="The Plug"]').forEach(wrapFooterLogo);
   }
 
   function run(){cleanProductCards();cleanProductGallery();applyLogoShine()}
