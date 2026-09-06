@@ -1,129 +1,42 @@
 (()=>{
   const esc=s=>String(s??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
-  const unique=a=>[...new Set((a||[]).filter(Boolean))];
-  const cleanChassis=ch=>String(ch||'')
-    .replace(/^Audi\s+/i,'')
-    .replace(/\s*\(UKL1 Platform\)$/i,'')
-    .replace(/\s*\((?:SAV|SAC)\)$/i,'')
-    .replace(/\s*\/\s*/g,' / ')
-    .replace(/\s+/g,' ')
-    .trim();
-  let DATA={makes:{}}, currentMake='', currentFamily='';
-
-  function canonicalModelName(input){
-    let s=String(input||'').replace(/^.*? — /,'').trim();
-    s=s.replace(/Coupé/gi,'Coupe').replace(/\bRS\s+(\d)\b/gi,'RS$1').replace(/\bAMG\s+(\d)\b/gi,'AMG $1');
-    if(/^1 Series M Coupe\b/i.test(s))s='1M';
-    s=s
-      .replace(/\((?:LCI|Pre-LCI|Facelift|B\d(?:\.\d)?|Mk\s*\d+)\)/gi,' ')
-      .replace(/\b(?:Competition|Performance|Performance Edition|Edition|Premium|Plus|Final|M Sport|S line|Black Edition)\b/gi,' ')
-      .replace(/\b(?:xDrive|sDrive|quattro|4MATIC|RWD|AWD|FWD)\b/gi,' ')
-      .replace(/\b\d{3,4}\s*(?:PS|HP|BHP)\b/gi,' ')
-      .replace(/\b\d\.\d\b/g,' ')
-      .replace(/\b(?:TFSI|TDI|FSI|TSI|TFSIe|PHEV|Hybrid|Diesel|Petrol|V6|V8|V10|V12|I4|I6)\b/gi,' ')
-      .replace(/\s*\/\s*(?:V10|V8|V6|performance|Plus)(?=\s|$)/gi,' ')
-      .replace(/\s+/g,' ')
-      .trim();
-    return s||String(input||'').trim();
-  }
-
-  function normalizeFamilyEntries(entries){
-    const seen=new Map();
-    (entries||[]).forEach(raw=>{
-      const split=String(raw||'').split('|');
-      const model=canonicalModelName(split.shift()||'');
-      const chassis=cleanChassis(split.join('|'));
-      if(!model)return;
-      const key=(model+'|'+chassis).toLowerCase().replace(/[^a-z0-9|]+/g,' ').replace(/\s+/g,' ').trim();
-      if(!seen.has(key))seen.set(key,model+(chassis?'|'+chassis:''));
-    });
-    return [...seen.values()].sort((a,b)=>a.localeCompare(b,undefined,{numeric:true,sensitivity:'base'}));
-  }
-
-  function normalizeAllMakes(){
-    Object.keys(DATA.makes||{}).forEach(make=>{
-      const families=DATA.makes[make]||{};
-      Object.keys(families).forEach(family=>{
-        families[family]=normalizeFamilyEntries(families[family]);
-        if(!families[family].length)delete families[family];
-      });
-      if(!Object.keys(families).length)delete DATA.makes[make];
-    });
-  }
+  let DATA={brands:{}},brand='',model='',submodel='';
 
   const style=document.createElement('style');
   style.textContent=`
   .tp2-backdrop{position:fixed;inset:0;background:rgba(9,18,30,.46);z-index:490;opacity:0;pointer-events:none;transition:.2s}.tp2-backdrop.open{opacity:1;pointer-events:auto}
   .tp2-menu{position:fixed;left:0;right:0;z-index:500;background:#fff;box-shadow:0 24px 70px rgba(19,33,53,.22);border-top:3px solid #F8FF66;display:none;color:#132135}.tp2-menu.open{display:block}
-  .tp2-shell{width:min(1500px,100%);margin:0 auto}.tp2-head{display:flex;align-items:center;justify-content:space-between;padding:17px 26px;border-bottom:1px solid #e5e9ed}.tp2-head h2{margin:0;font:800 20px/1 Nofex,"Arial Black",Arial,sans-serif;text-transform:uppercase}.tp2-head p{margin:5px 0 0;font-size:12px;color:#6c7883}.tp2-close{border:0;background:#132135;color:#fff;width:38px;height:38px;font-size:23px;cursor:pointer}.tp2-close:hover{background:#F8FF66;color:#132135}
-  .tp2-grid{display:grid;grid-template-columns:220px 270px minmax(0,1fr);height:min(610px,calc(100vh - 190px));min-height:430px}.tp2-col{overflow:auto}.tp2-makes{background:#f7f8fa;border-right:1px solid #e1e5e8}.tp2-series{background:#fff;border-right:1px solid #e1e5e8}.tp2-models{background:#fff}
-  .tp2-label{position:sticky;top:0;background:inherit;z-index:2;padding:15px 18px 10px;font-size:10px;letter-spacing:.14em;text-transform:uppercase;font-weight:800;color:#7c8790;border-bottom:1px solid #edf0f2}
-  .tp2-make,.tp2-family{display:flex;width:100%;align-items:center;justify-content:space-between;text-align:left;border:0;border-bottom:1px solid #edf0f2;background:transparent;color:#132135;padding:15px 18px;font-size:14px;font-weight:750;cursor:pointer}.tp2-make:hover,.tp2-family:hover{background:#eef8fd}.tp2-make.active,.tp2-family.active{background:#132135;color:#fff}.tp2-make.active span,.tp2-family.active span{color:#F8FF66}
-  .tp2-model-head{position:sticky;top:0;background:#fff;z-index:3;padding:14px 22px;border-bottom:1px solid #e7ebee;display:flex;gap:16px;align-items:center;justify-content:space-between}.tp2-model-head b{font:800 17px/1 Nofex,"Arial Black",Arial,sans-serif;text-transform:uppercase}.tp2-search{width:min(330px,50%);height:38px;border:1px solid #d6dde2;padding:0 12px;background:#fafbfc;color:#132135}
-  .tp2-model-list{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;padding:18px 22px 26px}.tp2-car{border:1px solid #e2e7ea;background:#fff;text-align:left;padding:14px 15px;min-height:68px;cursor:pointer;color:#132135;transition:.15s}.tp2-car:hover{border-color:#8FC6E4;background:#f3faff;transform:translateY(-1px)}.tp2-car strong{display:block;font-size:14px;line-height:1.25}.tp2-meta{display:block;color:#74818b;font-size:11px;margin-top:5px;line-height:1.25}.tp2-empty{padding:24px;color:#74818b;font-size:13px}
-  @media(max-width:850px){.tp2-menu{top:0!important;bottom:0}.tp2-shell{height:100%}.tp2-head{padding:14px 16px}.tp2-grid{height:calc(100% - 70px);min-height:0;grid-template-columns:1fr}.tp2-col{display:none}.tp2-col.mobile-active{display:block}.tp2-label{padding:14px 16px}.tp2-make,.tp2-family{padding:16px}.tp2-model-head{padding:12px 16px;flex-wrap:wrap}.tp2-search{width:100%;max-width:none}.tp2-model-list{grid-template-columns:1fr;padding:14px 16px}.tp2-mobile-back{display:inline-flex!important}}
-  .tp2-mobile-back{display:none;border:0;background:#eef6fa;color:#132135;padding:8px 10px;font-weight:800;cursor:pointer}
+  .tp2-shell{width:min(1600px,100%);margin:0 auto}.tp2-head{display:flex;align-items:center;justify-content:space-between;padding:17px 26px;border-bottom:1px solid #e5e9ed}.tp2-head h2{margin:0;font:800 20px/1 Nofex,"Arial Black",Arial,sans-serif;text-transform:uppercase}.tp2-head p{margin:5px 0 0;font-size:12px;color:#6c7883}.tp2-close{border:0;background:#132135;color:#fff;width:38px;height:38px;font-size:23px;cursor:pointer}.tp2-close:hover{background:#F8FF66;color:#132135}
+  .tp2-grid{display:grid;grid-template-columns:190px 230px 270px minmax(0,1fr);height:min(620px,calc(100vh - 190px));min-height:450px}.tp2-col{overflow:auto;border-right:1px solid #e1e5e8}.tp2-specs{border-right:0}.tp2-brands{background:#f7f8fa}.tp2-models,.tp2-subs,.tp2-specs{background:#fff}
+  .tp2-label{position:sticky;top:0;background:inherit;z-index:2;padding:15px 18px 10px;font-size:10px;letter-spacing:.14em;text-transform:uppercase;font-weight:800;color:#7c8790;border-bottom:1px solid #edf0f2}.tp2-choice{display:flex;width:100%;align-items:center;justify-content:space-between;text-align:left;border:0;border-bottom:1px solid #edf0f2;background:transparent;color:#132135;padding:15px 18px;font-size:14px;font-weight:750;cursor:pointer}.tp2-choice:hover{background:#eef8fd}.tp2-choice.active{background:#132135;color:#fff}.tp2-choice.active span{color:#F8FF66}
+  .tp2-spec-head{position:sticky;top:0;background:#fff;z-index:3;padding:14px 18px;border-bottom:1px solid #e7ebee}.tp2-spec-head b{font:800 16px/1.1 Nofex,"Arial Black",Arial,sans-serif;text-transform:uppercase}.tp2-spec-list{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;padding:16px 18px 24px}.tp2-spec{border:1px solid #e2e7ea;background:#fff;text-align:left;padding:14px 15px;min-height:86px;cursor:pointer;color:#132135;transition:.15s}.tp2-spec:hover{border-color:#8FC6E4;background:#f3faff;transform:translateY(-1px)}.tp2-spec strong{display:block;font-size:14px}.tp2-meta{display:block;color:#74818b;font-size:11px;margin-top:6px;line-height:1.35}.tp2-engine{display:block;color:#132135;font-size:12px;margin-top:7px;font-weight:700}.tp2-empty{padding:24px;color:#74818b;font-size:13px}.tp2-mobile-back{display:none;border:0;background:#eef6fa;color:#132135;padding:8px 10px;font-weight:800;cursor:pointer;margin-right:7px}
+  @media(max-width:900px){.tp2-menu{top:0!important;bottom:0}.tp2-shell{height:100%}.tp2-head{padding:14px 16px}.tp2-grid{height:calc(100% - 70px);min-height:0;grid-template-columns:1fr}.tp2-col{display:none;border-right:0}.tp2-col.mobile-active{display:block}.tp2-label{padding:14px 16px}.tp2-choice{padding:16px}.tp2-spec-list{grid-template-columns:1fr;padding:14px 16px}.tp2-mobile-back{display:inline-flex}}
   `;
   document.head.appendChild(style);
 
-  function normalize(){
-    if(DATA.makes?.Scion)delete DATA.makes.Scion;
-    if(DATA.makes?.Subaru)delete DATA.makes.Subaru;
-    if(DATA.makes?.Toyota){
-      const supra=(DATA.makes.Toyota['GR Supra']||[]).filter(v=>/^GR Supra 3\.0(?: Premium)?\|/i.test(v));
-      DATA.makes.Toyota=supra.length?{'GR Supra 3.0 (B58)':supra}:{};
-      if(!supra.length)delete DATA.makes.Toyota;
-    }
-    const bmw=DATA.makes?.BMW;
-    if(bmw){
-      const m=[];const pull=k=>(bmw[k]||[]).forEach(v=>m.push(v));
-      ['1 Series M Coupé','M2','M3','M4','M5','M8','X3 M','X4 M','X5 M','X6 M'].forEach(pull);
-      (bmw['3 Series']||[]).filter(v=>/^M3(?:\s|\||$)/i.test(v)).forEach(v=>m.push(v));
-      const cleaned={};
-      ['1 Series','2 Series','3 Series','4 Series','5 Series','6 Series','7 Series','8 Series'].forEach(k=>{if(bmw[k])cleaned[k]=bmw[k].filter(v=>!(k==='3 Series'&&/^M3(?:\s|\||$)/i.test(v)))});
-      if(m.length)cleaned['M Series']=m;
-      const x=[];Object.keys(bmw).filter(k=>/^X\d/.test(k)).forEach(k=>(bmw[k]||[]).forEach(v=>x.push(`${k} — ${v}`)));if(x.length)cleaned['X Series']=x;
-      Object.keys(bmw).forEach(k=>{if(!cleaned[k]&&!['1 Series M Coupé','M2','M3','M4','M5','M8','X3 M','X4 M','X5 M','X6 M'].includes(k)&&!/^X\d/.test(k))cleaned[k]=bmw[k]});
-      DATA.makes.BMW=cleaned;
-    }
-    normalizeAllMakes();
+  function shell(){let back=document.querySelector('.tp2-backdrop'),menu=document.querySelector('.tp2-menu');if(!back){back=document.createElement('div');back.className='tp2-backdrop';document.body.appendChild(back);back.onclick=close}if(!menu){menu=document.createElement('div');menu.className='tp2-menu';menu.innerHTML=`<div class="tp2-shell"><div class="tp2-head"><div><h2>Choose My Car</h2><p>Select brand, car model, submodel, then chassis with engine & litres.</p></div><button class="tp2-close" aria-label="Close vehicle menu">×</button></div><div class="tp2-grid"><aside class="tp2-col tp2-brands mobile-active"></aside><aside class="tp2-col tp2-models"></aside><aside class="tp2-col tp2-subs"></aside><section class="tp2-col tp2-specs"></section></div></div>`;document.body.appendChild(menu);menu.querySelector('.tp2-close').onclick=close}return menu}
+  const brands=()=>Object.keys(DATA.brands||{}).sort((a,b)=>a.localeCompare(b));
+  const models=()=>Object.keys(DATA.brands?.[brand]||{}).sort((a,b)=>a.localeCompare(b,undefined,{numeric:true,sensitivity:'base'}));
+  const subs=()=>Object.keys(DATA.brands?.[brand]?.[model]||{}).sort((a,b)=>a.localeCompare(b,undefined,{numeric:true,sensitivity:'base'}));
+  function mobileStep(step){if(innerWidth>900)return;const menu=shell();menu.querySelectorAll('.tp2-col').forEach(x=>x.classList.remove('mobile-active'));menu.querySelector(step==='models'?'.tp2-models':step==='subs'?'.tp2-subs':step==='specs'?'.tp2-specs':'.tp2-brands')?.classList.add('mobile-active')}
+  function render(step='brands'){
+    const menu=shell(),bs=brands();if(!brand||!DATA.brands[brand])brand=bs[0]||'';const ms=models();if(!model||!DATA.brands?.[brand]?.[model])model=ms[0]||'';const ss=subs();if(!submodel||!DATA.brands?.[brand]?.[model]?.[submodel])submodel=ss[0]||'';
+    const bcol=menu.querySelector('.tp2-brands'),mcol=menu.querySelector('.tp2-models'),scol=menu.querySelector('.tp2-subs'),pcol=menu.querySelector('.tp2-specs');
+    bcol.innerHTML=`<div class="tp2-label">1 · Brand</div>${bs.map(x=>`<button class="tp2-choice ${x===brand?'active':''}" data-brand="${esc(x)}">${esc(x)} <span>›</span></button>`).join('')}`;
+    mcol.innerHTML=`<div class="tp2-label"><button class="tp2-mobile-back" data-back="brands">←</button>2 · Car Model</div>${ms.map(x=>`<button class="tp2-choice ${x===model?'active':''}" data-model="${esc(x)}">${esc(x)} <span>›</span></button>`).join('')}`;
+    scol.innerHTML=`<div class="tp2-label"><button class="tp2-mobile-back" data-back="models">←</button>3 · Submodel</div>${ss.map(x=>`<button class="tp2-choice ${x===submodel?'active':''}" data-sub="${esc(x)}">${esc(x)} <span>›</span></button>`).join('')}`;
+    renderSpecs(pcol);
+    bcol.querySelectorAll('[data-brand]').forEach(b=>b.onclick=()=>{brand=b.dataset.brand;model='';submodel='';render('models')});
+    mcol.querySelectorAll('[data-model]').forEach(b=>b.onclick=()=>{model=b.dataset.model;submodel='';render('subs')});
+    scol.querySelectorAll('[data-sub]').forEach(b=>b.onclick=()=>{submodel=b.dataset.sub;render('specs')});
+    menu.querySelectorAll('[data-back]').forEach(b=>b.onclick=()=>mobileStep(b.dataset.back));mobileStep(step)
   }
-
-  function shell(){
-    let back=document.querySelector('.tp2-backdrop'),menu=document.querySelector('.tp2-menu');
-    if(!back){back=document.createElement('div');back.className='tp2-backdrop';document.body.appendChild(back);back.onclick=close}
-    if(!menu){menu=document.createElement('div');menu.className='tp2-menu';menu.innerHTML=`<div class="tp2-shell"><div class="tp2-head"><div><h2>Shop by car</h2><p>Choose your make, series and exact model/chassis.</p></div><button class="tp2-close" aria-label="Close vehicle menu">×</button></div><div class="tp2-grid"><aside class="tp2-col tp2-makes mobile-active"></aside><aside class="tp2-col tp2-series"></aside><section class="tp2-col tp2-models"></section></div></div>`;document.body.appendChild(menu);menu.querySelector('.tp2-close').onclick=close}
-    return menu;
-  }
-  const families=()=>Object.keys(DATA.makes[currentMake]||{});
-  function render(step='makes'){
-    const menu=shell(),makes=Object.keys(DATA.makes||{});
-    if(!currentMake||!DATA.makes[currentMake])currentMake=makes.includes('BMW')?'BMW':(makes[0]||'');
-    const fams=families();if(!currentFamily||!DATA.makes[currentMake]?.[currentFamily])currentFamily=fams[0]||'';
-    const makeCol=menu.querySelector('.tp2-makes'),seriesCol=menu.querySelector('.tp2-series'),modelCol=menu.querySelector('.tp2-models');
-    makeCol.innerHTML=`<div class="tp2-label">1 · Make</div>${makes.map(m=>`<button class="tp2-make ${m===currentMake?'active':''}" data-tp2-make="${esc(m)}">${esc(m)} <span>›</span></button>`).join('')}`;
-    seriesCol.innerHTML=`<div class="tp2-label"><button class="tp2-mobile-back" data-back="makes">← Makes</button> 2 · Series</div>${fams.map(f=>`<button class="tp2-family ${f===currentFamily?'active':''}" data-tp2-family="${esc(f)}">${esc(f)} <span>›</span></button>`).join('')}`;
-    renderModels(modelCol,'');
-    makeCol.querySelectorAll('[data-tp2-make]').forEach(b=>b.onclick=()=>{currentMake=b.dataset.tp2Make;currentFamily='';render('series')});
-    seriesCol.querySelectorAll('[data-tp2-family]').forEach(b=>b.onclick=()=>{currentFamily=b.dataset.tp2Family;render('models')});
-    menu.querySelectorAll('[data-back]').forEach(b=>b.onclick=()=>mobileStep(b.dataset.back));
-    mobileStep(step);
-  }
-  function renderModels(col,query=''){
-    const items=(DATA.makes[currentMake]?.[currentFamily]||[]).map(v=>{const [model,chassis='']=v.split('|');return {raw:v,model,chassis}});
-    const q=query.trim().toLowerCase(),filtered=q?items.filter(x=>(x.model+' '+x.chassis).toLowerCase().includes(q)):items;
-    col.innerHTML=`<div class="tp2-model-head"><div><button class="tp2-mobile-back" data-back="series">← Series</button> <b>${esc(currentFamily||'Models')}</b></div><input class="tp2-search" placeholder="Search model or chassis…" value="${esc(query)}"></div><div class="tp2-model-list">${filtered.length?filtered.map(x=>`<button class="tp2-car" data-tp2-car="${esc(x.raw)}"><strong>${esc(x.model.replace(/^.*? — /,''))}</strong>${x.chassis?`<span class="tp2-meta">Chassis: ${esc(cleanChassis(x.chassis))}</span>`:''}</button>`).join(''):'<div class="tp2-empty">No matching models.</div>'}</div>`;
-    col.querySelector('.tp2-search').oninput=e=>renderModels(col,e.target.value);
-    col.querySelectorAll('[data-tp2-car]').forEach(b=>b.onclick=()=>choose(b.dataset.tp2Car));
-    col.querySelectorAll('[data-back]').forEach(b=>b.onclick=()=>mobileStep(b.dataset.back));
-  }
-  function mobileStep(step){if(innerWidth>850)return;const menu=shell();menu.querySelectorAll('.tp2-col').forEach(x=>x.classList.remove('mobile-active'));menu.querySelector(step==='series'?'.tp2-series':step==='models'?'.tp2-models':'.tp2-makes')?.classList.add('mobile-active')}
-  function position(){const menu=shell(),header=document.querySelector('.mainnav');if(innerWidth>850&&header)menu.style.top=Math.round(header.getBoundingClientRect().bottom)+'px';else menu.style.top='0'}
-  function open(){document.querySelector('.tp-car-mega')?.classList.remove('open');document.querySelector('.tp-car-backdrop')?.classList.remove('open');position();render('makes');shell().classList.add('open');document.querySelector('.tp2-backdrop')?.classList.add('open');document.body.style.overflow='hidden'}
+  function renderSpecs(col){const specs=DATA.brands?.[brand]?.[model]?.[submodel]||[];col.innerHTML=`<div class="tp2-spec-head"><button class="tp2-mobile-back" data-back="subs">←</button><b>4 · Chassis & Engine / Litres</b></div><div class="tp2-spec-list">${specs.length?specs.map((x,i)=>{const eng=[x.engine,x.liters].filter(Boolean).join(' · ')||'Engine details not listed';return `<button class="tp2-spec" data-spec="${i}"><strong>${esc(x.chassis||'Chassis not listed')}</strong><span class="tp2-engine">${esc(eng)}</span>${x.raw_model&&x.raw_model!==model?`<span class="tp2-meta">Fitment: ${esc(x.raw_model)}</span>`:''}</button>`}).join(''):'<div class="tp2-empty">No chassis/engine combinations found for this submodel.</div>'}</div>`;col.querySelectorAll('[data-spec]').forEach(b=>b.onclick=()=>choose(specs[+b.dataset.spec]));col.querySelectorAll('[data-back]').forEach(b=>b.onclick=()=>mobileStep(b.dataset.back))}
+  function choose(spec){const selected={make:brand,brand,car_model:model,submodel,chassis:spec.chassis||'',engine:spec.engine||'',liters:spec.liters||'',model:spec.raw_model||model,label:[brand,model,submodel!=='Standard'?submodel:'',spec.chassis,[spec.engine,spec.liters].filter(Boolean).join(' ')].filter(Boolean).join(' · ')};localStorage.setItem('plug-selected-vehicle',JSON.stringify(selected));localStorage.removeItem('plug-selected-brand');close();location.hash='#shop';location.reload()}
+  function position(){const menu=shell(),header=document.querySelector('.mainnav');if(innerWidth>900&&header)menu.style.top=Math.round(header.getBoundingClientRect().bottom)+'px';else menu.style.top='0'}
+  function open(){position();render('brands');shell().classList.add('open');document.querySelector('.tp2-backdrop')?.classList.add('open');document.body.style.overflow='hidden'}
   function close(){shell().classList.remove('open');document.querySelector('.tp2-backdrop')?.classList.remove('open');document.body.style.overflow=''}
-  function choose(raw){const [model,chassis='']=raw.split('|');const selected={make:currentMake,family:currentFamily,model,chassis,label:`${currentMake} ${model.replace(/^.*? — /,'')}${chassis?' · '+cleanChassis(chassis):''}`};localStorage.setItem('plug-selected-vehicle',JSON.stringify(selected));localStorage.removeItem('plug-selected-brand');close();location.hash='#shop';location.reload()}
-
   document.addEventListener('click',e=>{const target=e.target.closest('[data-vehicle],.tp-open-car,.staging-nav a');if(!target)return;const isCar=target.matches('[data-vehicle],.tp-open-car')||target.textContent.toLowerCase().includes('shop by car');if(!isCar)return;e.preventDefault();e.stopImmediatePropagation();open()},true);
   document.addEventListener('keydown',e=>{if(e.key==='Escape')close()});window.addEventListener('resize',position);
-  fetch('/fitment-menu.json?v=6').then(r=>r.json()).then(d=>{DATA=d||{makes:{}};normalize()}).catch(()=>{});
+  fetch('/api/catalog/vehicles?v=1',{cache:'no-store'}).then(r=>r.json()).then(d=>{DATA=d&&d.brands?d:{brands:{}}}).catch(()=>{DATA={brands:{}}});
 })();
