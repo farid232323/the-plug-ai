@@ -1,6 +1,5 @@
 (()=>{
-  const RIYAL='⃁';
-  const esc=s=>String(s??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
+  const RIYAL_IMG='<img src="https://www.sama.gov.sa/ar-sa/Currency/Documents/Saudi_Riyal_Symbol-2.svg" alt="Saudi Riyal" style="height:.9em;width:.9em;object-fit:contain;vertical-align:-.08em">';
   let current={};
 
   async function getSettings(){
@@ -31,7 +30,7 @@
           <h2>Top Announcement Bar</h2>
           <label class="carousel-switch"><input type="checkbox" name="promo_bar_enabled"> Show announcement bar on storefront</label>
           <label>Announcement text<input name="promo_bar_text" placeholder="Free standard shipping to Saudi Arabia over {threshold}"></label>
-          <label>Free shipping threshold (${RIYAL})<input name="shipping_threshold" type="number" min="0" step="1"></label>
+          <label>Free shipping threshold (${RIYAL_IMG})<input name="shipping_threshold" type="number" min="0" step="1"></label>
           <p class="muted">Use <code>{threshold}</code> in the announcement text to insert the saved threshold automatically. Turn the switch off to remove the free-shipping bar completely.</p>
           <button class="primary" id="savePromo">Save Announcement Bar</button>
         </div>
