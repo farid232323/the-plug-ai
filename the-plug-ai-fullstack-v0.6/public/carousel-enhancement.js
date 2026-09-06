@@ -1,17 +1,17 @@
 (()=>{
   const slides=[
-    {image:'assets/hero.jpg',label:'European performance'},
-    {image:'assets/story.jpg',label:'Performance engine bay'},
-    {image:'assets/cat-performance.jpg',label:'Engine and performance detail'},
-    {image:'assets/cat-exterior.jpg',label:'Exterior performance styling'},
-    {image:'assets/exhaust-1.jpg',label:'Exhaust performance detail'}
+    {image:'https://images.unsplash.com/photo-1741889823656-c056b0c43749?auto=format&fit=crop&w=2200&q=85',label:'BMW M4',position:'center 58%'},
+    {image:'https://images.unsplash.com/photo-1774066811800-448b846647a2?auto=format&fit=crop&w=2200&q=85',label:'Mercedes-AMG GT',position:'center 55%'},
+    {image:'https://images.unsplash.com/photo-1762028159677-e45ac537a29a?auto=format&fit=crop&w=2200&q=85',label:'Audi RS6',position:'center 55%'},
+    {image:'https://images.unsplash.com/photo-1591076898712-f658e1e7edfb?auto=format&fit=crop&w=2200&q=85',label:'Porsche 911',position:'center 58%'},
+    {image:'https://images.unsplash.com/photo-1707406767272-8c1deea8f5b8?auto=format&fit=crop&w=2200&q=85',label:'BMW M3 Engine Bay',position:'center 48%'}
   ];
 
   const style=document.createElement('style');
   style.textContent=`
     #home .tp-hero.tp-carousel-ready{animation:none!important;background-image:none!important}
     #home .tp-hero.tp-carousel-ready:before{z-index:1!important}
-    .tp-hero-slides{position:absolute;inset:0;z-index:0;overflow:hidden}
+    .tp-hero-slides{position:absolute;inset:0;z-index:0;overflow:hidden;background:#132135}
     .tp-hero-slide{position:absolute;inset:0;background-size:cover;background-position:center;background-repeat:no-repeat;opacity:0;transform:scale(1.025);transition:opacity .8s ease,transform 6s ease}
     .tp-hero-slide.active{opacity:1;transform:scale(1)}
     .tp-hero-controls{position:absolute;left:50%;bottom:24px;transform:translateX(-50%);z-index:4;display:flex;align-items:center;gap:12px;background:rgba(19,33,53,.52);backdrop-filter:blur(8px);padding:8px 10px;border:1px solid rgba(255,255,255,.18)}
@@ -33,7 +33,7 @@
 
     const slideWrap=document.createElement('div');
     slideWrap.className='tp-hero-slides';
-    slideWrap.innerHTML=slides.map((s,i)=>`<div class="tp-hero-slide ${i===0?'active':''}" data-slide="${i}" role="img" aria-label="${s.label}" style="background-image:url('${s.image}')"></div>`).join('');
+    slideWrap.innerHTML=slides.map((s,i)=>`<div class="tp-hero-slide ${i===0?'active':''}" data-slide="${i}" role="img" aria-label="${s.label}" style="background-image:url('${s.image}');background-position:${s.position||'center'}"></div>`).join('');
     hero.prepend(slideWrap);
 
     const caption=document.createElement('div');
@@ -43,7 +43,7 @@
 
     const controls=document.createElement('div');
     controls.className='tp-hero-controls';
-    controls.setAttribute('aria-label','Homepage automotive carousel controls');
+    controls.setAttribute('aria-label','Homepage European performance car carousel controls');
     controls.innerHTML=`<button class="tp-hero-arrow" data-prev aria-label="Previous slide">‹</button><div class="tp-hero-dots">${slides.map((_,i)=>`<button class="tp-hero-dot ${i===0?'active':''}" data-dot="${i}" aria-label="Go to slide ${i+1}"></button>`).join('')}</div><button class="tp-hero-arrow" data-next aria-label="Next slide">›</button>`;
     hero.appendChild(controls);
 
