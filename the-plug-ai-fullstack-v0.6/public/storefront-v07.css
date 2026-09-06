@@ -24,6 +24,7 @@
 #home .tp-brandbar{border-top:1px solid #e7eaed!important;border-bottom:1px solid #e7eaed!important;padding:26px 0!important;background:#fff!important;position:static!important;overflow:hidden!important}
 #home .tp-brands{display:grid!important;grid-template-columns:repeat(3,minmax(0,1fr))!important;gap:18px!important;align-items:center!important;text-align:center!important}
 #home .tp-brand{font:800 16px/1.2 Arial,sans-serif!important;letter-spacing:.06em!important;color:#1B2B3F!important;white-space:nowrap!important}
+#home .tp-brand:nth-child(n+4){display:none!important}
 #home .tp-products{display:grid!important;grid-template-columns:repeat(4,minmax(0,1fr))!important;gap:26px!important;position:static!important}
 #home .tp-products .product-card{position:relative!important;display:block!important;min-width:0!important;overflow:visible!important;transform:none!important;float:none!important}
 #home .tp-products .product-image,#home .tp-products .product-img{height:280px!important;position:relative!important;display:flex!important;align-items:center!important;justify-content:center!important;overflow:hidden!important;background:#fff!important;border:1px solid #eceeef!important}
