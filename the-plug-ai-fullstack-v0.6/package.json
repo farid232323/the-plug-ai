@@ -1,0 +1,8 @@
+{
+  "name":"the-plug-ai-fullstack",
+  "version":"0.6.0",
+  "private":true,
+  "description":"Independent AI-built storefront and detailed admin backend for The Plug",
+  "scripts":{"start":"node server.js","import:sample":"node server.js --import-sample"},
+  "engines":{"node":">=22"}
+}
