@@ -85,8 +85,68 @@ const termsHtml=`
 <p>Email: [Customerservice@theplug.inc]</p>
 <p>Website: www.theplug.inc</p>`;
 
-const policyText={shipping:`<h2>Shipping Policy</h2><p>We aim to make premium automotive parts easy to receive across Saudi Arabia. Shipping fees and estimated delivery times are shown at checkout based on destination, item size and supplier availability.</p><h3>Free standard shipping</h3><p>Free standard shipping applies to qualifying Saudi Arabia orders over SR 1400.</p><h3>Delivery timing</h3><p>Some products may ship directly from approved suppliers. Estimated delivery dates will be shown before payment whenever available.</p>`,returns:`<h2>Return & Refund Policy</h2><p>Return eligibility depends on product condition, fitment, supplier rules and whether the item was specially ordered. Items must be unused and in their original condition unless the product arrived defective or damaged.</p><h3>Fitment</h3><p>Please use The Plug vehicle compatibility tools before ordering. Products ordered for an incorrectly selected vehicle may be subject to supplier return restrictions or restocking fees.</p><h3>Refunds</h3><p>Approved refunds are returned to the original payment method after inspection and processing.</p>`,privacy:`<h2>Privacy Policy</h2><p>The Plug uses account, contact, vehicle and order information to operate the store, improve fitment recommendations, process purchases and provide customer support.</p><h3>Your vehicle data</h3><p>VIN and vehicle information are used to help identify compatible products and personalize the shopping experience.</p><h3>Your choices</h3><p>You may update your account information, saved addresses, vehicle preferences or request account deletion from your profile.</p>`,terms:termsHtml};
-function renderPolicy(k='shipping'){policyCopy.innerHTML=policyText[k]||policyText.shipping;policyCopy.classList.toggle('terms-copy',k==='terms');$$('[data-policy]').forEach(b=>b.classList.toggle('active',b.dataset.policy===k))}
+const privacyHtml=`
+<h2>Privacy Policy</h2>
+<h3>1. Introduction</h3>
+<p>The Plug respects your privacy and is committed to protecting your personal data.</p>
+<p>This Privacy Policy explains how we collect, use, disclose, and safeguard your information when you use our website and services (the “Platform”).</p>
+<p>By using The Plug, you agree to the terms outlined in this Privacy Policy.</p>
+<h3>2. Information We Collect</h3>
+<p>We may collect and process the following types of personal data:</p>
+<ul><li>Personal Information: Name, email address, phone number, billing and shipping address</li><li>Account Information: Login credentials and account preferences</li><li>Transaction Information: Orders, payments, and purchase history</li><li>Vehicle Information: VIN, make, model, year (for compatibility purposes)</li><li>Technical Data: IP address, browser type, device information, and usage data</li></ul>
+<h3>3. How We Use Your Information</h3>
+<p>We use your information to:</p>
+<ul><li>Process and fulfill orders</li><li>Provide customer support</li><li>Improve our Platform and services</li><li>Communicate updates, promotions, and offers (with your consent)</li><li>Prevent fraud and ensure security</li><li>Comply with legal and regulatory obligations</li></ul>
+<h3>4. Sharing of Information</h3>
+<p>We may share your information with:</p>
+<ul><li>Third-party suppliers to fulfill orders</li><li>Payment processors to complete transactions</li><li>Logistics providers for shipping and delivery</li><li>Legal authorities if required by law</li></ul>
+<p>We do not sell your personal data to third parties.</p>
+<h3>5. Data Storage &amp; Security</h3>
+<p>We implement appropriate technical and organizational measures to protect your personal data.</p>
+<p>While we strive to protect your information, no method of transmission over the internet is 100% secure.</p>
+<h3>6. Data Retention</h3>
+<p>We retain your personal data only for as long as necessary to fulfill the purposes outlined in this policy, unless a longer retention period is required by law.</p>
+<h3>7. Your Rights</h3>
+<p>Depending on applicable laws, you may have the right to:</p>
+<ul><li>Access your personal data</li><li>Request correction or deletion of your data</li><li>Object to or restrict processing</li><li>Withdraw consent at any time</li></ul>
+<h3>8. Cookies &amp; Tracking Technologies</h3>
+<p>We use cookies and similar technologies to enhance user experience, analyze traffic, and personalize content.</p>
+<p>You may control cookie preferences through your browser settings.</p>
+<h3>9. Third-Party Links</h3>
+<p>Our Platform may contain links to third-party websites.</p>
+<p>We are not responsible for the privacy practices or content of these websites.</p>
+<h3>10. Changes to This Policy</h3>
+<p>We may update this Privacy Policy from time to time.</p>
+<p>Any changes will be posted on this page with an updated revision date.</p>
+<h3>11. Contact Us</h3>
+<p>If you have any questions about this Privacy Policy, please contact us:</p>
+<p>Email: customerservice@theplug.inc</p>
+<p>Website: www.theplug.inc</p>`;
+
+const returnsHtml=`
+<h2>Return &amp; Refund Policy</h2>
+<p>At The Plug, we strive to ensure seamless &amp; satisfying shopping experience for all our customers. To maintain the quality and efficiency of our services, we have established the following policies regarding order modifications and returns:</p>
+<h3>Order Modifications</h3>
+<ul><li>Changes to orders: Once an order is placed and paid, it cannot be modified or cancelled unless the request is made within 24 hours of payment.</li><li>To request a modification within this timeframe, please contact customer support team immediately at (customerservice@theplug.inc). Be sure to provide your order number and details of the requested change.</li><li>After the 24 hour window, all orders are considered final, and no further modifications can be made.</li></ul>
+<h3>Returns</h3>
+<ul><li>At this time, The Plug does not accept returns for any products purchased through our platform.</li><li>We take great care to ensure that all products listed on our platform meet the highest quality standards and are inspected before shipping.</li><li>To avoid any inconvenience, we encourage customers to carefully review product specifications, compatability, and descriptions before placing an order. If you have any questions, our customer support team is happy to assist.</li></ul>
+<h3>Exceptions</h3>
+<ul><li>Defective or damaged products: if a product arrives damaged or defective, please notify us within 24hrs of receipt. Our team will work with you to resolve your issue which may include arranging a replacement or refund based on the situation.</li><li>Claims for damaged or defective products must include clear photographic and a description of the issue.</li></ul>
+<h3>Refunds</h3>
+<ul><li>Refunds are only applicable in cases where the product is deemed defective or damaged upon arrival, and no replacement is available.</li><li>Refund processing time may vary and will typically require 7-10 working days to process once approved.</li></ul>
+<h3>Client Information</h3>
+<ul><li>Clients must provide accurate &amp; up to date details, including delivery addresses, contact numbers, and any specific delivery instructions. Any changes to be made after an order has been made will not be able to be modified.</li></ul>
+<h3><u><em>Order Definitions:</em></u></h3>
+<p><strong><u>Under Review:</u></strong> Your order is currently under review and your payment will be on hold until we confirm that your requested item is available. we will contact you once we have an update.</p>
+<p><strong><u>Back Order:</u></strong> This product is currently on back order with our supplier or manufacturer. We are unable to predict the exact date that this product will be available for shipment. Orders placed containing back ordered products will ship as soon as possible as products become available. An alternate or equivalent product may be available. Please contact The Plug Sales Team if you have any questions.</p>
+<p><strong><u>Ships in [# of days]:</u></strong> This product is sourced from one of our suppliers and will usually ship within the time frame shown, meaning that your order would not ship from our location until those products are received within the given timeframe.</p>
+<p><strong><u>On Order [ETA]:</u> This product is currently on order with our supplier. ETA to be provided when product has been shipped from supplier.</strong></p>
+<p><strong><u>In Process:</u> This order has arrived at The Plug and is being prepared for shipment. A shipment tracking # will be provided with your chosen shipping company. Your payment will be deducted.</strong></p>
+<p><strong><u>Shipped:</u></strong> Your order has been packaged and a shipping label has been assigned. Orders cannot be cancelled or revised at this stage in the ordering process.</p>
+<p><strong><u>Canceled:</u>The order has been cancelled. Contact us if you have nay questions.</strong></p>`;
+
+const policyText={shipping:`<h2>Shipping Policy</h2><p>We aim to make premium automotive parts easy to receive across Saudi Arabia. Shipping fees and estimated delivery times are shown at checkout based on destination, item size and supplier availability.</p><h3>Free standard shipping</h3><p>Free standard shipping applies to qualifying Saudi Arabia orders over SR 1400.</p><h3>Delivery timing</h3><p>Some products may ship directly from approved suppliers. Estimated delivery dates will be shown before payment whenever available.</p>`,returns:returnsHtml,privacy:privacyHtml,terms:termsHtml};
+function renderPolicy(k='shipping'){policyCopy.innerHTML=policyText[k]||policyText.shipping;policyCopy.classList.toggle('terms-copy',['terms','returns','privacy'].includes(k));$$('[data-policy]').forEach(b=>b.classList.toggle('active',b.dataset.policy===k))}
 const policyTabs=$('.policy-tabs');if(policyTabs&&!policyTabs.querySelector('[data-policy="terms"]')){const termsBtn=document.createElement('button');termsBtn.dataset.policy='terms';termsBtn.textContent='Terms & conditions';policyTabs.appendChild(termsBtn)}
 $$('[data-policy]').forEach(b=>b.onclick=()=>renderPolicy(b.dataset.policy));renderPolicy();
 const policyStyle=document.createElement('style');policyStyle.textContent=`.policy-copy.terms-copy{max-width:1100px;color:#344957;line-height:1.75}.policy-copy.terms-copy h2{font-family:Nofex,"Arial Black",Arial,sans-serif;text-transform:uppercase;font-size:clamp(34px,4vw,58px);color:#132135;margin:10px 0 36px;border-top:18px solid #8FC6E4;padding-top:24px}.policy-copy.terms-copy h3{font-family:Nofex,"Arial Black",Arial,sans-serif;font-size:26px;color:#344957;margin:44px 0 16px}.policy-copy.terms-copy p,.policy-copy.terms-copy li{font-size:18px}.policy-copy.terms-copy ul{padding-left:28px}.policy-copy.terms-copy li{margin:12px 0}.policy-copy.terms-copy strong{font-weight:800}`;document.head.appendChild(policyStyle);
