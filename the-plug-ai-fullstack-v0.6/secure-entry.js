@@ -71,7 +71,7 @@ const proxy=http.createServer(async(req,res)=>{
   if(adminProtected(u.pathname)&&!authorized(req))return challenge(res);
   if(u.pathname==='/admin.js'&&req.method==='GET')return appendScript(res,'/admin.js',['admin-carousel.js']);
   if(u.pathname==='/api-storefront.js'&&req.method==='GET')return appendScript(res,'/api-storefront.js',['category-menu.js','product-page-cleanup.js','category-count-cleanup.js','product-media-polish.js','nav-hover-controller.js','about-mobile-polish.js','brand-logo-fix.js','homepage-order.js']);
-  if(u.pathname==='/carousel-enhancement.js'&&req.method==='GET')return appendScript(res,'/carousel-enhancement.js',['carousel-managed.js']);
+  if(u.pathname==='/carousel-enhancement.js'&&req.method==='GET')return appendScript(res,'/carousel-enhancement.js',['carousel-managed.js','homepage-order-final.js']);
   const headers={...req.headers,host:`127.0.0.1:${internalPort}`};
   const pr=http.request({hostname:'127.0.0.1',port:internalPort,path:req.url,method:req.method,headers},pres=>{res.writeHead(pres.statusCode||500,pres.headers);pres.pipe(res)});
   pr.on('error',err=>{console.error('Proxy error',err);if(!res.headersSent)res.writeHead(502);res.end('Bad gateway')});req.pipe(pr);
