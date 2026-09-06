@@ -1,4 +1,5 @@
 (()=>{
+  if(window.__plugSiteContentLoaded)return;window.__plugSiteContentLoaded=true;
   const RIYAL_SVG='https://www.sama.gov.sa/ar-sa/Currency/Documents/Saudi_Riyal_Symbol-2.svg';
   const pricePattern=/\b(?:SR|SAR)(?=\s*[0-9])/g;
   let siteSettings={};
