@@ -1,0 +1,8 @@
+(()=>{
+  const SRC='https://www.sama.gov.sa/ar-sa/Currency/Documents/Saudi_Riyal_Symbol-2.svg';
+  const re=/\b(?:SR|SAR)(?=\s*[0-9])/g;
+  function style(){if(document.getElementById('admin-riyal-style'))return;const s=document.createElement('style');s.id='admin-riyal-style';s.textContent='.admin-riyal-symbol{display:inline-block;width:.82em;height:.82em;object-fit:contain;vertical-align:-.08em;margin-right:.18em}';document.head.appendChild(s)}
+  function img(){const i=document.createElement('img');i.className='admin-riyal-symbol';i.src=SRC;i.alt='Saudi Riyal';return i}
+  function run(root=document.body){if(!root)return;style();const w=document.createTreeWalker(root,NodeFilter.SHOW_TEXT,{acceptNode(n){const p=n.parentElement;if(!p||['SCRIPT','STYLE','TEXTAREA','INPUT','OPTION'].includes(p.tagName))return NodeFilter.FILTER_REJECT;re.lastIndex=0;return re.test(n.nodeValue||'')?NodeFilter.FILTER_ACCEPT:NodeFilter.FILTER_REJECT}});const a=[];while(w.nextNode())a.push(w.currentNode);for(const n of a){const t=n.nodeValue||'';re.lastIndex=0;let m,last=0,f=document.createDocumentFragment(),hit=false;while((m=re.exec(t))){hit=true;if(m.index>last)f.append(document.createTextNode(t.slice(last,m.index)));f.append(img());last=m.index+m[0].length}if(hit){if(last<t.length)f.append(document.createTextNode(t.slice(last)));n.replaceWith(f)}}}
+  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',()=>run(),{once:true});else run();let q=false;new MutationObserver(()=>{if(q)return;q=true;requestAnimationFrame(()=>{q=false;run()})}).observe(document.documentElement,{childList:true,subtree:true});
+})();
