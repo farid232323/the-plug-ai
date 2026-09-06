@@ -27,6 +27,7 @@ const defaultSlides=[
   {image:'https://images.unsplash.com/photo-1707406767272-8c1deea8f5b8?auto=format&fit=crop&w=2200&q=85',label:'BMW M3 Engine Bay',position:'center 48%',enabled:true}
 ];
 async function publicCarousel(res){try{const r=await internalRequest('/api/admin/settings');const settings=JSON.parse(r.body.toString('utf8')||'{}');let slides=defaultSlides;if(settings.carousel_slides){try{const parsed=JSON.parse(settings.carousel_slides);if(Array.isArray(parsed)&&parsed.length)slides=parsed}catch{}}slides=slides.filter(x=>x&&x.enabled!==false&&x.image).map(x=>({image:String(x.image),label:String(x.label||'European performance'),position:String(x.position||'center center')}));json(res,{slides:slides.length?slides:defaultSlides})}catch{json(res,{slides:defaultSlides})}}
+async function publicSiteSettings(res){try{const r=await internalRequest('/api/admin/settings');const s=JSON.parse(r.body.toString('utf8')||'{}');const keys=['hero_headline','hero_subheading','shipping_threshold','support_email','promo_bar_enabled','promo_bar_text','seo_title','seo_description'];const out={};for(const k of keys)if(s[k]!==undefined)out[k]=String(s[k]);json(res,out)}catch(e){console.error('Site settings API error',e);json(res,{promo_bar_enabled:'true',promo_bar_text:'Free standard shipping to Saudi Arabia over {threshold}',shipping_threshold:'1400'})}}
 
 let catalogDb=null;
 function db(){if(!catalogDb)catalogDb=new DatabaseSync(path.join(__dirname,'data','theplug.sqlite'));return catalogDb}
@@ -66,12 +67,13 @@ async function appendScript(res,sourcePath,extraPaths){try{const r=await interna
 const proxy=http.createServer(async(req,res)=>{
   const u=new URL(req.url,'http://localhost');
   if(u.pathname==='/api/carousel'&&req.method==='GET')return publicCarousel(res);
+  if(u.pathname==='/api/site-settings'&&req.method==='GET')return publicSiteSettings(res);
   if(u.pathname==='/api/catalog/categories'&&req.method==='GET')return publicCategories(res);
   const catMatch=u.pathname.match(/^\/api\/catalog\/category\/([^/]+)$/);if(catMatch&&req.method==='GET')return publicCategory(res,decodeURIComponent(catMatch[1]));
   if(adminProtected(u.pathname)&&!authorized(req))return challenge(res);
-  if(u.pathname==='/admin.js'&&req.method==='GET')return appendScript(res,'/admin.js',['admin-carousel.js']);
-  if(u.pathname==='/api-storefront.js'&&req.method==='GET')return appendScript(res,'/api-storefront.js',['category-menu.js','product-page-cleanup.js','category-count-cleanup.js','product-media-polish.js','nav-hover-controller.js','about-mobile-polish.js','brand-logo-fix.js','homepage-order.js']);
-  if(u.pathname==='/carousel-enhancement.js'&&req.method==='GET')return appendScript(res,'/carousel-enhancement.js',['carousel-managed.js','homepage-order-final.js']);
+  if(u.pathname==='/admin.js'&&req.method==='GET')return appendScript(res,'/admin.js',['admin-carousel.js','admin-content-fix.js']);
+  if(u.pathname==='/api-storefront.js'&&req.method==='GET')return appendScript(res,'/api-storefront.js',['category-menu.js','product-page-cleanup.js','category-count-cleanup.js','product-media-polish.js','nav-hover-controller.js','about-mobile-polish.js','brand-logo-fix.js','homepage-order.js','site-content.js']);
+  if(u.pathname==='/carousel-enhancement.js'&&req.method==='GET')return appendScript(res,'/carousel-enhancement.js',['carousel-managed.js','homepage-order-final.js','site-content.js']);
   const headers={...req.headers,host:`127.0.0.1:${internalPort}`};
   const pr=http.request({hostname:'127.0.0.1',port:internalPort,path:req.url,method:req.method,headers},pres=>{res.writeHead(pres.statusCode||500,pres.headers);pres.pipe(res)});
   pr.on('error',err=>{console.error('Proxy error',err);if(!res.headersSent)res.writeHead(502);res.end('Bad gateway')});req.pipe(pr);
