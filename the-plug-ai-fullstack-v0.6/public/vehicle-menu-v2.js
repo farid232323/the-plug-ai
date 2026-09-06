@@ -1,8 +1,55 @@
 (()=>{
   const esc=s=>String(s??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
   const unique=a=>[...new Set((a||[]).filter(Boolean))];
-  const cleanChassis=ch=>String(ch||'').replace(/^Audi /,'').replace(/\s*\(UKL1 Platform\)$/,'').replace(/\s*\(SAV\)$/,'').replace(/\s*\(SAC\)$/,'');
+  const cleanChassis=ch=>String(ch||'')
+    .replace(/^Audi\s+/i,'')
+    .replace(/\s*\(UKL1 Platform\)$/i,'')
+    .replace(/\s*\((?:SAV|SAC)\)$/i,'')
+    .replace(/\s*\/\s*/g,' / ')
+    .replace(/\s+/g,' ')
+    .trim();
   let DATA={makes:{}}, currentMake='', currentFamily='';
+
+  function canonicalModelName(input){
+    let s=String(input||'').replace(/^.*? — /,'').trim();
+    s=s.replace(/Coupé/gi,'Coupe').replace(/\bRS\s+(\d)\b/gi,'RS$1').replace(/\bAMG\s+(\d)\b/gi,'AMG $1');
+    if(/^1 Series M Coupe\b/i.test(s))s='1M';
+    s=s
+      .replace(/\((?:LCI|Pre-LCI|Facelift|B\d(?:\.\d)?|Mk\s*\d+)\)/gi,' ')
+      .replace(/\b(?:Competition|Performance|Performance Edition|Edition|Premium|Plus|Final|M Sport|S line|Black Edition)\b/gi,' ')
+      .replace(/\b(?:xDrive|sDrive|quattro|4MATIC|RWD|AWD|FWD)\b/gi,' ')
+      .replace(/\b\d{3,4}\s*(?:PS|HP|BHP)\b/gi,' ')
+      .replace(/\b\d\.\d\b/g,' ')
+      .replace(/\b(?:TFSI|TDI|FSI|TSI|TFSIe|PHEV|Hybrid|Diesel|Petrol|V6|V8|V10|V12|I4|I6)\b/gi,' ')
+      .replace(/\s*\/\s*(?:V10|V8|V6|performance|Plus)(?=\s|$)/gi,' ')
+      .replace(/\s+/g,' ')
+      .trim();
+    return s||String(input||'').trim();
+  }
+
+  function normalizeFamilyEntries(entries){
+    const seen=new Map();
+    (entries||[]).forEach(raw=>{
+      const split=String(raw||'').split('|');
+      const model=canonicalModelName(split.shift()||'');
+      const chassis=cleanChassis(split.join('|'));
+      if(!model)return;
+      const key=(model+'|'+chassis).toLowerCase().replace(/[^a-z0-9|]+/g,' ').replace(/\s+/g,' ').trim();
+      if(!seen.has(key))seen.set(key,model+(chassis?'|'+chassis:''));
+    });
+    return [...seen.values()].sort((a,b)=>a.localeCompare(b,undefined,{numeric:true,sensitivity:'base'}));
+  }
+
+  function normalizeAllMakes(){
+    Object.keys(DATA.makes||{}).forEach(make=>{
+      const families=DATA.makes[make]||{};
+      Object.keys(families).forEach(family=>{
+        families[family]=normalizeFamilyEntries(families[family]);
+        if(!families[family].length)delete families[family];
+      });
+      if(!Object.keys(families).length)delete DATA.makes[make];
+    });
+  }
 
   const style=document.createElement('style');
   style.textContent=`
@@ -22,17 +69,24 @@
   function normalize(){
     if(DATA.makes?.Scion)delete DATA.makes.Scion;
     if(DATA.makes?.Subaru)delete DATA.makes.Subaru;
-    if(DATA.makes?.Toyota){const supra=(DATA.makes.Toyota['GR Supra']||[]).filter(v=>/^GR Supra 3\.0(?: Premium)?\|/i.test(v));DATA.makes.Toyota=supra.length?{'GR Supra 3.0 (B58)':supra}:{};if(!supra.length)delete DATA.makes.Toyota}
-    const bmw=DATA.makes?.BMW;if(!bmw)return;
-    const m=[];const pull=k=>(bmw[k]||[]).forEach(v=>m.push(v));
-    ['1 Series M Coupé','M2','M3','M4','M5','M8','X3 M','X4 M','X5 M','X6 M'].forEach(pull);
-    (bmw['3 Series']||[]).filter(v=>/^M3(?:\s|\||$)/i.test(v)).forEach(v=>m.push(v));
-    const cleaned={};
-    ['1 Series','2 Series','3 Series','4 Series','5 Series','6 Series','7 Series','8 Series'].forEach(k=>{if(bmw[k])cleaned[k]=bmw[k].filter(v=>!(k==='3 Series'&&/^M3(?:\s|\||$)/i.test(v)))});
-    if(m.length)cleaned['M Series']=unique(m);
-    const x=[];Object.keys(bmw).filter(k=>/^X\d/.test(k)).forEach(k=>(bmw[k]||[]).forEach(v=>x.push(`${k} — ${v}`)));if(x.length)cleaned['X Series']=unique(x);
-    Object.keys(bmw).forEach(k=>{if(!cleaned[k]&&!['1 Series M Coupé','M2','M3','M4','M5','M8','X3 M','X4 M','X5 M','X6 M'].includes(k)&&!/^X\d/.test(k))cleaned[k]=bmw[k]});
-    DATA.makes.BMW=cleaned;
+    if(DATA.makes?.Toyota){
+      const supra=(DATA.makes.Toyota['GR Supra']||[]).filter(v=>/^GR Supra 3\.0(?: Premium)?\|/i.test(v));
+      DATA.makes.Toyota=supra.length?{'GR Supra 3.0 (B58)':supra}:{};
+      if(!supra.length)delete DATA.makes.Toyota;
+    }
+    const bmw=DATA.makes?.BMW;
+    if(bmw){
+      const m=[];const pull=k=>(bmw[k]||[]).forEach(v=>m.push(v));
+      ['1 Series M Coupé','M2','M3','M4','M5','M8','X3 M','X4 M','X5 M','X6 M'].forEach(pull);
+      (bmw['3 Series']||[]).filter(v=>/^M3(?:\s|\||$)/i.test(v)).forEach(v=>m.push(v));
+      const cleaned={};
+      ['1 Series','2 Series','3 Series','4 Series','5 Series','6 Series','7 Series','8 Series'].forEach(k=>{if(bmw[k])cleaned[k]=bmw[k].filter(v=>!(k==='3 Series'&&/^M3(?:\s|\||$)/i.test(v)))});
+      if(m.length)cleaned['M Series']=m;
+      const x=[];Object.keys(bmw).filter(k=>/^X\d/.test(k)).forEach(k=>(bmw[k]||[]).forEach(v=>x.push(`${k} — ${v}`)));if(x.length)cleaned['X Series']=x;
+      Object.keys(bmw).forEach(k=>{if(!cleaned[k]&&!['1 Series M Coupé','M2','M3','M4','M5','M8','X3 M','X4 M','X5 M','X6 M'].includes(k)&&!/^X\d/.test(k))cleaned[k]=bmw[k]});
+      DATA.makes.BMW=cleaned;
+    }
+    normalizeAllMakes();
   }
 
   function shell(){
@@ -71,5 +125,5 @@
 
   document.addEventListener('click',e=>{const target=e.target.closest('[data-vehicle],.tp-open-car,.staging-nav a');if(!target)return;const isCar=target.matches('[data-vehicle],.tp-open-car')||target.textContent.toLowerCase().includes('shop by car');if(!isCar)return;e.preventDefault();e.stopImmediatePropagation();open()},true);
   document.addEventListener('keydown',e=>{if(e.key==='Escape')close()});window.addEventListener('resize',position);
-  fetch('/fitment-menu.json?v=5').then(r=>r.json()).then(d=>{DATA=d||{makes:{}};normalize()}).catch(()=>{});
+  fetch('/fitment-menu.json?v=6').then(r=>r.json()).then(d=>{DATA=d||{makes:{}};normalize()}).catch(()=>{});
 })();
