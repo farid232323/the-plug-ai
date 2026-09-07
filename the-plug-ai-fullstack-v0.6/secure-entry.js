@@ -20,17 +20,33 @@ function challenge(res){res.writeHead(401,{'WWW-Authenticate':'Basic realm="The 
 function internalRequest(pathname,method='GET',headers={},body=null){return new Promise((resolve,reject)=>{const pr=http.request({hostname:'127.0.0.1',port:internalPort,path:pathname,method,headers:{host:`127.0.0.1:${internalPort}`,...headers}},pres=>{const chunks=[];pres.on('data',c=>chunks.push(c));pres.on('end',()=>resolve({status:pres.statusCode||500,headers:pres.headers,body:Buffer.concat(chunks)}))});pr.on('error',reject);if(body)pr.write(body);pr.end()})}
 function json(res,obj,status=200){const body=Buffer.from(JSON.stringify(obj));res.writeHead(status,{'content-type':'application/json','content-length':body.length,'cache-control':'no-store'});res.end(body)}
 
+let catalogDb=null;
+function db(){if(!catalogDb)catalogDb=new DatabaseSync(path.join(__dirname,'data','theplug.sqlite'));return catalogDb}
+
 const defaultSlides=[
   {image:'https://images.unsplash.com/photo-1774066811800-448b846647a2?auto=format&fit=crop&w=2200&q=85',label:'Mercedes-AMG GT',position:'center 55%',enabled:true},
   {image:'https://images.unsplash.com/photo-1762028159677-e45ac537a29a?auto=format&fit=crop&w=2200&q=85',label:'Audi RS6',position:'center 55%',enabled:true},
-  {image:'https://images.unsplash.com/photo-1591076898712-f658e1e7edfb?auto=format&fit=crop&w=2200&q=85',label:'Porsche 911',position:'center 58%',enabled:true},
   {image:'https://images.unsplash.com/photo-1707406767272-8c1deea8f5b8?auto=format&fit=crop&w=2200&q=85',label:'BMW M3 Engine Bay',position:'center 48%',enabled:true}
 ];
-async function publicCarousel(res){try{const r=await internalRequest('/api/admin/settings');const settings=JSON.parse(r.body.toString('utf8')||'{}');let slides=defaultSlides;if(settings.carousel_slides){try{const parsed=JSON.parse(settings.carousel_slides);if(Array.isArray(parsed)&&parsed.length)slides=parsed}catch{}}slides=slides.filter(x=>x&&x.enabled!==false&&x.image).map(x=>({image:String(x.image),label:String(x.label||'European performance'),position:String(x.position||'center center')}));json(res,{slides:slides.length?slides:defaultSlides})}catch{json(res,{slides:defaultSlides})}}
+function publicCarousel(res){
+  try{
+    const row=db().prepare("SELECT value FROM settings WHERE key='carousel_slides'").get();
+    let source='default',slides=defaultSlides;
+    if(row&&row.value){
+      try{
+        const parsed=JSON.parse(row.value);
+        if(Array.isArray(parsed)){slides=parsed;source='backend'}
+      }catch(e){console.error('Invalid saved carousel settings',e.message)}
+    }
+    slides=(Array.isArray(slides)?slides:[]).filter(x=>x&&x.enabled!==false&&x.image).map(x=>({image:String(x.image),label:String(x.label||'European performance'),position:String(x.position||'center center')}));
+    return json(res,{slides,source});
+  }catch(e){
+    console.error('Carousel settings read failed',e);
+    return json(res,{slides:defaultSlides,source:'default'});
+  }
+}
 async function publicSiteSettings(res){try{const r=await internalRequest('/api/admin/settings');const s=JSON.parse(r.body.toString('utf8')||'{}');const keys=['hero_headline','hero_subheading','shipping_threshold','support_email','promo_bar_enabled','promo_bar_text','seo_title','seo_description','frontend_config'];const out={};for(const k of keys)if(s[k]!==undefined)out[k]=String(s[k]);json(res,out)}catch(e){console.error('Site settings API error',e);json(res,{promo_bar_enabled:'true',promo_bar_text:'Free standard shipping to Saudi Arabia over {threshold}',shipping_threshold:'1400'})}}
 
-let catalogDb=null;
-function db(){if(!catalogDb)catalogDb=new DatabaseSync(path.join(__dirname,'data','theplug.sqlite'));return catalogDb}
 const categoryDefs=[
   {name:'Exhaust',slug:'exhaust',description:'Valved, cat-back, axle-back and performance exhaust systems'},
   {name:'Gauges & Displays',slug:'gauges-displays',description:'OBD2 multi-gauges and driver display upgrades'},
