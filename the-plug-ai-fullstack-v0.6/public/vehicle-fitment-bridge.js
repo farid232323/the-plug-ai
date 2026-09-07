@@ -1,79 +1,95 @@
 (()=>{
   const nativeFetch=window.fetch.bind(window);
+  let fitmentCacheKey='', fitmentCache=[];
 
   function getSelected(){
     try{return JSON.parse(localStorage.getItem('plug-selected-vehicle')||'null')}catch{return null}
   }
-  function paramsFor(selected,mode='exact'){
-    const p={make:selected?.make||selected?.brand||''};
-    const model=selected?.model||selected?.car_model||'';
-    if(model)p.model=model;
+  function normalizedSelected(s){
+    if(!s)return null;
+    return {make:s.make||s.brand||'',model:s.car_model||s.model||'',rawModel:s.model||'',submodel:s.submodel||'',chassis:s.chassis||'',engine:s.engine||'',liters:s.liters||''};
+  }
+  function queryFor(s,mode){
+    const p=new URLSearchParams();
+    if(s.make)p.set('make',s.make);
+    if(s.model)p.set('model',s.model);
     if(mode==='exact'){
-      if(selected?.submodel)p.submodel=selected.submodel;
-      if(selected?.chassis)p.chassis=selected.chassis;
-      if(selected?.engine)p.engine=selected.engine;
-      if(selected?.liters)p.liters=selected.liters;
+      if(s.chassis)p.set('chassis',s.chassis);
+      if(s.engine)p.set('engine',s.engine);
+      if(s.liters)p.set('liters',s.liters);
     }else if(mode==='model-chassis'){
-      if(selected?.chassis)p.chassis=selected.chassis;
-    }else if(mode==='model-submodel'){
-      if(selected?.submodel)p.submodel=selected.submodel;
+      if(s.chassis)p.set('chassis',s.chassis);
+    }else if(mode==='model-engine'){
+      if(s.engine)p.set('engine',s.engine);
+      if(s.liters)p.set('liters',s.liters);
+    }else if(mode==='raw-model'){
+      p.set('model',s.rawModel||s.model);
+    }else if(mode==='make-chassis'){
+      p.delete('model');
+      if(s.chassis)p.set('chassis',s.chassis);
     }
-    return new URLSearchParams(p);
+    return p;
+  }
+  async function getRows(s,mode){
+    try{
+      const r=await nativeFetch('/api/catalog/vehicle-fitments?'+queryFor(s,mode).toString(),{cache:'no-store'});
+      if(!r.ok)return [];
+      const rows=await r.json();
+      return Array.isArray(rows)?rows:[];
+    }catch{return []}
   }
   async function readFitments(selected){
-    if(!selected?.make&&!selected?.brand)return [];
-    const modes=['exact','model-chassis','model-submodel','model'];
-    for(const mode of modes){
-      try{
-        const r=await nativeFetch('/api/catalog/vehicle-fitments?'+paramsFor(selected,mode).toString(),{cache:'no-store'});
-        if(!r.ok)continue;
-        const rows=await r.json();
-        if(Array.isArray(rows)&&rows.length)return rows;
-      }catch{}
+    const s=normalizedSelected(selected);
+    if(!s?.make)return [];
+    const key=JSON.stringify(s);
+    if(key===fitmentCacheKey&&fitmentCache.length)return fitmentCache;
+
+    const modes=['exact','model-chassis','model-engine','model','raw-model','make-chassis'];
+    const batches=await Promise.all(modes.map(m=>getRows(s,m)));
+    const seen=new Set(),rows=[];
+    for(const batch of batches){
+      for(const f of batch){
+        const id=String(f.id||[f.product_id,f.car_brand,f.model,f.chassis,f.engine,f.liters,f.source_row].join('|'));
+        if(seen.has(id))continue;
+        seen.add(id);rows.push(f);
+      }
     }
-    return [];
+    fitmentCacheKey=key;fitmentCache=rows;
+    return rows;
   }
   async function readVehicleProducts(selected){
     const fits=await readFitments(selected);
     const ids=[...new Set(fits.map(f=>Number(f.product_id)).filter(Number.isFinite))];
     if(!ids.length)return [];
-    const chunks=await Promise.all(ids.map(async id=>{
+    const products=await Promise.all(ids.map(async id=>{
       try{
         const r=await nativeFetch('/api/products/'+id,{cache:'no-store'});
         if(!r.ok)return null;
-        return await r.json();
+        const p=await r.json();
+        if(!p.image&&Array.isArray(p.images)&&p.images[0]?.url)p.image=p.images[0].url;
+        return p;
       }catch{return null}
     }));
-    return chunks.filter(Boolean);
+    return products.filter(Boolean);
   }
-  function jsonResponse(data){
-    return new Response(JSON.stringify(data),{status:200,headers:{'content-type':'application/json','cache-control':'no-store'}});
-  }
+  function jsonResponse(data){return new Response(JSON.stringify(data),{status:200,headers:{'content-type':'application/json','cache-control':'no-store'}})}
 
   window.fetch=async(input,init)=>{
     const url=typeof input==='string'?input:(input&&input.url)||'';
     const selected=getSelected();
 
-    // The legacy storefront only requests 200 products before applying vehicle fitment.
-    // For Shop by Car, bypass that cap and return every product attached to the selected vehicle.
     if(selected&&(url.startsWith('/api/products?')||url==='/api/products')){
-      const products=await readVehicleProducts(selected);
-      return jsonResponse(products);
+      return jsonResponse(await readVehicleProducts(selected));
     }
 
-    // The legacy renderer also reads the protected admin fitment list and filters a second time.
-    // Feed it the same public fitment rows and normalize the selected fields so valid matches are not discarded.
     if(url.startsWith('/api/admin/fitments')){
       if(selected?.make||selected?.brand){
         const rows=await readFitments(selected);
-        const make=selected.make||selected.brand||'';
-        const model=selected.model||selected.car_model||'';
-        const chassis=selected.chassis||'';
-        return jsonResponse(rows.map(f=>({...f,car_brand:make||f.car_brand,model:model||f.model,chassis:chassis||f.chassis})));
+        const s=normalizedSelected(selected);
+        return jsonResponse(rows.map(f=>({...f,car_brand:s.make||f.car_brand,model:s.model||f.model,chassis:s.chassis||f.chassis})));
       }
       return nativeFetch('/api/catalog/vehicle-fitments',{cache:'no-store'});
     }
-
     return nativeFetch(input,init);
   };
 })();
