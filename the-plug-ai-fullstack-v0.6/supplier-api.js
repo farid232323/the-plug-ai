@@ -18,6 +18,7 @@ module.exports=function createSupplierApi({db,json,readJson,adminAuthorized,admi
   function normalizeAddress(a={}){return{first_name:clean(a.first_name),last_name:clean(a.last_name),address1:clean(a.address1||a.address),address2:clean(a.address2),city:clean(a.city),postal_code:clean(a.postal_code||a.zip),phone:clean(a.phone),country:'Saudi Arabia'}}
   function productRows(items){const ids=[...new Set((items||[]).map(x=>Number(x.product_id||x.id)).filter(Number.isFinite))];if(!ids.length)return [];const qs=ids.map(()=>'?').join(',');return db.prepare(`SELECT id,brand_name,mfg_part_id,title,price_sar,status FROM products WHERE id IN (${qs})`).all(...ids)}
   function cacheKey(items,address){return crypto.createHash('sha256').update(JSON.stringify({items:(items||[]).map(x=>[x.product_id||x.id,x.qty||1]),address})).digest('hex')}
+  function toSar(amount,currency){const n=round2(amount),c=String(currency||'USD').toUpperCase();if(c==='SAR')return n;if(c==='USD')return round2(n*USD_SAR_RATE);return null}
   async function quote(req,res){
     const d=await readJson(req),items=Array.isArray(d.items)?d.items:[],address=normalizeAddress(d.address||{});
     if(!items.length)return json(res,{error:'No products were supplied for shipping quote.'},400);
@@ -35,9 +36,10 @@ module.exports=function createSupplierApi({db,json,readJson,adminAuthorized,admi
     if(q.reauth_required)return json(res,{error:'Valvetronic dealer account needs to be reauthenticated.',reauth_required:true,supplier:'Valvetronic Designs'},503);
     if(q.available===false){const value={supplier:'Valvetronic Designs',available:false,stocks:q.stocks||[],quote_available:true};cache.set(key,{at:Date.now(),value});return json(res,value)}
     if(!q.ok||!q.shipping||!Number.isFinite(Number(q.shipping.amount)))return json(res,{error:q.error||'Supplier shipping rate was not returned.',supplier:'Valvetronic Designs',diagnostic:q.diagnostic||null},502);
-    const sourceCurrency=String(q.shipping.source_currency||'USD').toUpperCase();const sourceAmount=round2(q.shipping.amount);const amountSar=sourceCurrency==='SAR'?sourceAmount:sourceCurrency==='USD'?round2(sourceAmount*USD_SAR_RATE):null;
+    const sourceCurrency=String(q.shipping.source_currency||'USD').toUpperCase();const sourceAmount=round2(q.shipping.amount);const amountSar=toSar(sourceAmount,sourceCurrency);
     if(amountSar===null)return json(res,{error:`Unsupported supplier shipping currency: ${sourceCurrency}`},502);
-    const value={supplier:'Valvetronic Designs',available:true,amount_sar:amountSar,shipping:{amount_sar:amountSar,source_amount:sourceAmount,source_currency:sourceCurrency,method:q.shipping.method||'Supplier shipping',quoted_at:q.shipping.quoted_at||new Date().toISOString()},stocks:q.stocks||[],quote_available:true};cache.set(key,{at:Date.now(),value});return json(res,value)
+    const allRates=(Array.isArray(q.shipping.all_rates)?q.shipping.all_rates:[]).map(r=>{const c=String(r.currency||sourceCurrency).toUpperCase(),sar=toSar(r.price,c);return sar===null?null:{name:clean(r.name)||'Shipping',amount_sar:sar,source_amount:round2(r.price),source_currency:c}}).filter(Boolean).sort((a,b)=>a.amount_sar-b.amount_sar);
+    const value={supplier:'Valvetronic Designs',available:true,amount_sar:amountSar,shipping:{amount_sar:amountSar,source_amount:sourceAmount,source_currency:sourceCurrency,method:q.shipping.method||'Supplier shipping',quoted_at:q.shipping.quoted_at||new Date().toISOString(),all_rates:allRates},stocks:q.stocks||[],quote_available:true,rate_source:q.rate_source||null};cache.set(key,{at:Date.now(),value});return json(res,value)
   }
   async function admin(req,res,u){
     if(!adminAuthorized(req))return adminChallenge(res);
