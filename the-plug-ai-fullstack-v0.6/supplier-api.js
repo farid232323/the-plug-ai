@@ -16,21 +16,40 @@ module.exports=function createSupplierApi({db,json,readJson,adminAuthorized,admi
     return j;
   }
   function normalizeAddress(a={}){return{first_name:clean(a.first_name),last_name:clean(a.last_name),address1:clean(a.address1||a.address),address2:clean(a.address2),city:clean(a.city),postal_code:clean(a.postal_code||a.zip),phone:clean(a.phone),country:'Saudi Arabia'}}
-  function productRows(items){const ids=[...new Set((items||[]).map(x=>Number(x.product_id||x.id)).filter(Number.isFinite))];if(!ids.length)return [];const qs=ids.map(()=>'?').join(',');return db.prepare(`SELECT id,brand_name,mfg_part_id,title,price_sar,status FROM products WHERE id IN (${qs})`).all(...ids)}
-  function cacheKey(items,address){return crypto.createHash('sha256').update(JSON.stringify({items:(items||[]).map(x=>[x.product_id||x.id,x.qty||1]),address})).digest('hex')}
+  function resolveProduct(item){
+    const id=Number(item?.product_id||item?.id);
+    if(Number.isFinite(id)){
+      const row=db.prepare('SELECT id,brand_name,mfg_part_id,title,price_sar,status FROM products WHERE id=?').get(id);
+      if(row)return row;
+    }
+    const sku=clean(item?.sku||item?.mfg_part_id||item?.mfg||item?.part_number);
+    if(sku){
+      const rows=db.prepare('SELECT id,brand_name,mfg_part_id,title,price_sar,status FROM products WHERE lower(mfg_part_id)=lower(?) ORDER BY id DESC LIMIT 2').all(sku);
+      if(rows.length===1)return rows[0];
+      const valv=rows.find(r=>/valvetronic/i.test(clean(r.brand_name)));if(valv)return valv;
+    }
+    const title=clean(item?.title||item?.name);
+    if(title){
+      const rows=db.prepare('SELECT id,brand_name,mfg_part_id,title,price_sar,status FROM products WHERE lower(title)=lower(?) ORDER BY id DESC LIMIT 5').all(title);
+      const valv=rows.filter(r=>/valvetronic/i.test(clean(r.brand_name)));
+      if(valv.length===1)return valv[0];
+      if(rows.length===1)return rows[0];
+    }
+    return null;
+  }
+  function cacheKey(items,address){return crypto.createHash('sha256').update(JSON.stringify({items:(items||[]).map(x=>[x.product_id||x.id||x.sku||x.title,x.qty||1]),address})).digest('hex')}
   function toSar(amount,currency){const n=round2(amount),c=String(currency||'USD').toUpperCase();if(c==='SAR')return n;if(c==='USD')return round2(n*USD_SAR_RATE);return null}
   async function quote(req,res){
     const d=await readJson(req),items=Array.isArray(d.items)?d.items:[],address=normalizeAddress(d.address||{});
     if(!items.length)return json(res,{error:'No products were supplied for shipping quote.'},400);
     if(!address.address1||!address.city||!address.postal_code)return json(res,{error:'Complete the delivery address to calculate supplier shipping.'},400);
-    const requestedIds=items.map(x=>Number(x.product_id||x.id));
-    if(requestedIds.some(id=>!Number.isFinite(id)))return json(res,{error:'One or more cart items are missing a valid catalog product ID. Remove and re-add the product from the catalog, then try again.'},400);
-    const rows=productRows(items),byId=new Map(rows.map(x=>[Number(x.id),x]));
-    const missing=requestedIds.filter(id=>!byId.has(id));
-    if(missing.length)return json(res,{error:'One or more products could not be matched to the catalog. Remove and re-add them from the store before calculating shipping.',missing_product_ids:[...new Set(missing)]},400);
+    const resolved=items.map((item,index)=>({item,index,product:resolveProduct(item)}));
+    const unresolved=resolved.filter(x=>!x.product);
+    if(unresolved.length)return json(res,{error:'One or more cart items could not be matched to the product catalog. Please reopen the product from the store and add it to cart again.',unmatched_items:unresolved.map(x=>({index:x.index,title:clean(x.item?.title||x.item?.name),sku:clean(x.item?.sku||x.item?.mfg_part_id)}))},400);
+    const rows=resolved.map(x=>x.product);
     const unsupported=rows.filter(x=>!/valvetronic/i.test(clean(x.brand_name)));
     if(unsupported.length)return json(res,{error:'Live supplier shipping is currently enabled for Valvetronic products only.',unsupported:unsupported.map(x=>({id:x.id,brand:x.brand_name,title:x.title}))},409);
-    const payloadItems=items.map(x=>{const p=byId.get(Number(x.product_id||x.id));return{product_id:p.id,sku:p.mfg_part_id,title:p.title,qty:Math.max(1,Number(x.qty||1))}});
+    const payloadItems=resolved.map(({item,product:p})=>({product_id:p.id,sku:p.mfg_part_id,title:p.title,qty:Math.max(1,Number(item.qty||1))}));
     const key=cacheKey(payloadItems,address),hit=cache.get(key);if(hit&&Date.now()-hit.at<5*60*1000)return json(res,{...hit.value,cached:true});
     let q;try{q=await worker('/suppliers/valvetronic/quote',{method:'POST',body:JSON.stringify({items:payloadItems,address})})}catch(e){return json(res,{error:String(e.message||e),supplier:'Valvetronic Designs',quote_available:false},502)}
     if(q.reauth_required)return json(res,{error:'Valvetronic dealer account needs to be reauthenticated.',reauth_required:true,supplier:'Valvetronic Designs'},503);
