@@ -20,6 +20,48 @@
     return out.join(' ')||'Standard';
   }
   const specKey=x=>[clean(x.chassis).toLowerCase(),clean(x.engine).toLowerCase(),clean(x.liters).toLowerCase()].join('|');
+  const specSignature=specs=>[...new Set((specs||[]).map(specKey))].sort().join('||');
+  function subCore(name){
+    const n=canonicalSub(name);
+    return n.replace(/\b(Sedan|Saloon)\b/gi,'').replace(/\s+/g,' ').trim()||'Standard';
+  }
+  function addUniqueSpecs(target,specs){
+    const seen=new Set(target.map(specKey));
+    for(const sp of specs||[]){const k=specKey(sp);if(!seen.has(k)){seen.add(k);target.push(sp)}}
+  }
+  function consolidateSubs(entries){
+    const list=[...entries.values()].map(x=>({name:x.name,specs:[...x.specs]}));
+
+    // Merge labels that differ only by a redundant Sedan/Saloon suffix when a clean base label exists.
+    const byCore=new Map();
+    for(const item of list){const core=subCore(item.name).toLowerCase();if(!byCore.has(core))byCore.set(core,[]);byCore.get(core).push(item)}
+    const afterCore=[];
+    for(const group of byCore.values()){
+      const bare=group.find(x=>canonicalSub(x.name).toLowerCase()===subCore(x.name).toLowerCase());
+      if(bare&&group.length>1){
+        const merged={name:canonicalSub(bare.name),specs:[]};
+        for(const x of group)addUniqueSpecs(merged.specs,x.specs);
+        afterCore.push(merged);
+      }else afterCore.push(...group);
+    }
+
+    // If two labels point to exactly the same chassis/engine/litre set, keep only the shortest clean label.
+    const bySignature=new Map();
+    for(const item of afterCore){
+      const sig=specSignature(item.specs)||('empty:'+canonicalSub(item.name).toLowerCase());
+      if(!bySignature.has(sig))bySignature.set(sig,[]);
+      bySignature.get(sig).push(item);
+    }
+    const result=[];
+    for(const group of bySignature.values()){
+      if(group.length===1){result.push(group[0]);continue}
+      const preferred=[...group].sort((a,b)=>canonicalSub(a.name).length-canonicalSub(b.name).length||canonicalSub(a.name).localeCompare(canonicalSub(b.name)))[0];
+      const merged={name:canonicalSub(preferred.name),specs:[]};
+      for(const x of group)addUniqueSpecs(merged.specs,x.specs);
+      result.push(merged);
+    }
+    return result;
+  }
   function normalizeData(raw){
     const out={brands:{}};
     for(const [make,models] of Object.entries(raw?.brands||{})){
@@ -31,11 +73,9 @@
         for(const [sub,specs] of Object.entries(subs||{})){
           const cs=canonicalSub(sub),k=cs.toLowerCase();
           if(!merged.has(k))merged.set(k,{name:cs,specs:[]});
-          const bucket=merged.get(k).specs;
-          const seen=new Set(bucket.map(specKey));
-          for(const sp of specs||[]){const kk=specKey(sp);if(!seen.has(kk)){seen.add(kk);bucket.push(sp)}}
+          addUniqueSpecs(merged.get(k).specs,specs);
         }
-        for(const {name,specs} of merged.values()){
+        for(const {name,specs} of consolidateSubs(merged)){
           specs.sort((a,b)=>`${clean(a.chassis)} ${clean(a.engine)} ${clean(a.liters)}`.localeCompare(`${clean(b.chassis)} ${clean(b.engine)} ${clean(b.liters)}`,undefined,{numeric:true,sensitivity:'base'}));
           out.brands[make][cm][name]=specs;
         }
@@ -91,12 +131,15 @@
   }
   function choose(spec){
     const selected={make:brand,brand,car_model:model,submodel,chassis:clean(spec.chassis),engine:clean(spec.engine),liters:clean(spec.liters),model:clean(spec.raw_model)||model,label:[brand,model,submodel!=='Standard'?submodel:'',clean(spec.chassis),[clean(spec.engine),clean(spec.liters)].filter(Boolean).join(' ')].filter(Boolean).join(' · ')};
-    localStorage.setItem('plug-selected-vehicle',JSON.stringify(selected));localStorage.removeItem('plug-selected-brand');close();location.hash='#shop';location.reload();
+    localStorage.setItem('plug-selected-vehicle',JSON.stringify(selected));
+    localStorage.removeItem('plug-selected-brand');
+    localStorage.removeItem('plug-selected-category');
+    close();location.hash='#shop';location.reload();
   }
   function position(){const menu=shell(),header=document.querySelector('.mainnav');if(innerWidth>900&&header)menu.style.top=Math.round(header.getBoundingClientRect().bottom+10)+'px';else menu.style.top='12px'}
   function open(){position();render('brands');shell().classList.add('open');document.querySelector('.tp2-backdrop')?.classList.add('open');document.body.style.overflow='hidden'}
   function close(){shell().classList.remove('open');document.querySelector('.tp2-backdrop')?.classList.remove('open');document.body.style.overflow=''}
   document.addEventListener('click',e=>{const target=e.target.closest('[data-vehicle],.tp-open-car,.staging-nav a');if(!target)return;const isCar=target.matches('[data-vehicle],.tp-open-car')||target.textContent.toLowerCase().includes('shop by car');if(!isCar)return;e.preventDefault();e.stopImmediatePropagation();open()},true);
   document.addEventListener('keydown',e=>{if(e.key==='Escape')close()});window.addEventListener('resize',position);
-  fetch('/api/catalog/vehicles?v=2',{cache:'no-store'}).then(r=>r.json()).then(d=>{DATA=normalizeData(d&&d.brands?d:{brands:{}})}).catch(()=>{DATA={brands:{}}});
+  fetch('/api/catalog/vehicles?v=3',{cache:'no-store'}).then(r=>r.json()).then(d=>{DATA=normalizeData(d&&d.brands?d:{brands:{}})}).catch(()=>{DATA={brands:{}}});
 })();
