@@ -4,6 +4,7 @@ const path=require('path');
 const crypto=require('crypto');
 const {spawn}=require('child_process');
 const {DatabaseSync}=require('node:sqlite');
+const createSupplierApi=require('./supplier-api');
 
 const PUBLIC_PORT=Number(process.env.PORT||4173);
 const APP_PORT=Number(process.env.GATEWAY_APP_PORT||4175);
@@ -78,6 +79,8 @@ async function adminCustomerApi(req,res,u){
   return false;
 }
 
+const supplierApi=createSupplierApi({db,json,readJson,adminAuthorized,adminChallenge});
+
 async function shopApi(req,res,u){const p=u.pathname,d=req.method==='GET'?{}:await readJson(req);
   if(p==='/api/shop/register'&&req.method==='POST'){
     const username=clean(d.username),email=clean(d.email).toLowerCase(),password=String(d.password||'');if(!validUsername(username))return json(res,{error:'Username must be 3–40 characters and use only letters, numbers, dots, hyphens or underscores.'},400);if(!validEmail(email))return json(res,{error:'Enter a valid email address.'},400);if(password.length<8)return json(res,{error:'Password must be at least 8 characters.'},400);if(db.prepare('SELECT id FROM customers WHERE lower(email)=lower(?)').get(email))return json(res,{error:'An account already exists with this email.'},409);if(db.prepare('SELECT id FROM customers WHERE lower(username)=lower(?)').get(username))return json(res,{error:'That username is already taken.'},409);
@@ -111,5 +114,5 @@ async function shopApi(req,res,u){const p=u.pathname,d=req.method==='GET'?{}:awa
 
 function proxyRequest(req,res,bodyOverride=null){const headers={...req.headers,host:`127.0.0.1:${APP_PORT}`};if(bodyOverride)headers['content-length']=bodyOverride.length;const pr=http.request({hostname:'127.0.0.1',port:APP_PORT,path:req.url,method:req.method,headers},pres=>{const pathname=req.url.split('?')[0];if((pathname==='/api-storefront.js'||pathname==='/admin.js')&&req.method==='GET'){const chunks=[];pres.on('data',c=>chunks.push(c));pres.on('end',()=>{try{let extras=[];if(pathname==='/api-storefront.js')extras=['customer-commerce.js','customer-account-polish.js'];else extras=['admin-customers.js'];const pieces=[Buffer.concat(chunks)];for(const f of extras)pieces.push(Buffer.from('\n;'),fs.readFileSync(path.join(ROOT,'public',f)));const body=Buffer.concat(pieces);res.writeHead(pres.statusCode||200,{...pres.headers,'content-type':'application/javascript; charset=utf-8','content-length':body.length,'cache-control':'no-store'});res.end(body)}catch(e){console.error('Unable to load injected scripts',e);res.writeHead(500);res.end('Unable to load scripts')}});return}res.writeHead(pres.statusCode||500,pres.headers);pres.pipe(res)});pr.on('error',e=>{console.error('Gateway proxy error',e);if(!res.headersSent)res.writeHead(502);res.end('Bad gateway')});if(bodyOverride)pr.end(bodyOverride);else req.pipe(pr)}
 
-const server=http.createServer(async(req,res)=>{const u=new URL(req.url,'http://localhost');if(u.pathname.startsWith('/api/admin/customer-accounts')){const handled=await adminCustomerApi(req,res,u);if(handled!==false)return}if(u.pathname.startsWith('/api/shop/')){const handled=await shopApi(req,res,u);if(handled!==false)return}proxyRequest(req,res)});
+const server=http.createServer(async(req,res)=>{const u=new URL(req.url,'http://localhost');if(u.pathname==='/api/supplier/quote'&&req.method==='POST')return supplierApi.quote(req,res);if(u.pathname.startsWith('/api/admin/suppliers/')){const handled=await supplierApi.admin(req,res,u);if(handled!==false)return}if(u.pathname.startsWith('/api/admin/customer-accounts')){const handled=await adminCustomerApi(req,res,u);if(handled!==false)return}if(u.pathname.startsWith('/api/shop/')){const handled=await shopApi(req,res,u);if(handled!==false)return}proxyRequest(req,res)});
 server.listen(PUBLIC_PORT,()=>console.log(`The Plug customer gateway on :${PUBLIC_PORT}; secure app on :${APP_PORT}`));
