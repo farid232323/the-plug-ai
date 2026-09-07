@@ -32,7 +32,6 @@
   function consolidateSubs(entries){
     const list=[...entries.values()].map(x=>({name:x.name,specs:[...x.specs]}));
 
-    // Merge labels that differ only by a redundant Sedan/Saloon suffix when a clean base label exists.
     const byCore=new Map();
     for(const item of list){const core=subCore(item.name).toLowerCase();if(!byCore.has(core))byCore.set(core,[]);byCore.get(core).push(item)}
     const afterCore=[];
@@ -45,7 +44,6 @@
       }else afterCore.push(...group);
     }
 
-    // If two labels point to exactly the same chassis/engine/litre set, keep only the shortest clean label.
     const bySignature=new Map();
     for(const item of afterCore){
       const sig=specSignature(item.specs)||('empty:'+canonicalSub(item.name).toLowerCase());
@@ -139,7 +137,7 @@
   function position(){const menu=shell(),header=document.querySelector('.mainnav');if(innerWidth>900&&header)menu.style.top=Math.round(header.getBoundingClientRect().bottom+10)+'px';else menu.style.top='12px'}
   function open(){position();render('brands');shell().classList.add('open');document.querySelector('.tp2-backdrop')?.classList.add('open');document.body.style.overflow='hidden'}
   function close(){shell().classList.remove('open');document.querySelector('.tp2-backdrop')?.classList.remove('open');document.body.style.overflow=''}
-  document.addEventListener('click',e=>{const target=e.target.closest('[data-vehicle],.tp-open-car,.staging-nav a');if(!target)return;const isCar=target.matches('[data-vehicle],.tp-open-car')||target.textContent.toLowerCase().includes('shop by car');if(!isCar)return;e.preventDefault();e.stopImmediatePropagation();open()},true);
+  document.addEventListener('click',e=>{const target=e.target.closest('[data-vehicle],.tp-open-car,.staging-nav a');if(!target)return;const isCar=target.matches('[data-vehicle],.tp-open-car')||target.textContent.toLowerCase().includes('shop by car');if(!isCar)return;if(document.querySelector('.tp3-panel'))return;e.preventDefault();e.stopImmediatePropagation();open()},true);
   document.addEventListener('keydown',e=>{if(e.key==='Escape')close()});window.addEventListener('resize',position);
   fetch('/api/catalog/vehicles?v=3',{cache:'no-store'}).then(r=>r.json()).then(d=>{DATA=normalizeData(d&&d.brands?d:{brands:{}})}).catch(()=>{DATA={brands:{}}});
 })();
