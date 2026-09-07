@@ -49,3 +49,33 @@
   if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',bind,{once:true});else bind();
   let queued=false;new MutationObserver(()=>{if(queued)return;queued=true;requestAnimationFrame(()=>{queued=false;bind()})}).observe(document.documentElement,{childList:true,subtree:true});
 })();
+
+(()=>{
+  const $=(s,c=document)=>c.querySelector(s), $$=(s,c=document)=>[...c.querySelectorAll(s)];
+  const esc=s=>String(s??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
+  const cart=()=>{try{const v=JSON.parse(localStorage.getItem('plug-cart')||'[]');return Array.isArray(v)?v:[]}catch{return []}};
+  const qty=x=>Math.max(1,Number(x?.qty||1));
+  const price=x=>Number(x?.price_sar??x?.price??0)||0;
+  const money=n=>'SAR '+Number(n||0).toLocaleString('en-SA',{minimumFractionDigits:2,maximumFractionDigits:2});
+  const title=x=>String(x?.title||x?.name||'Product');
+  const image=x=>String(x?.image||x?.img||x?.image_url||'assets/logo.png');
+  function fingerprint(items){return JSON.stringify(items.map(x=>[x.id||x.product_id||'',x.mfg_part_id||x.sku||'',qty(x),price(x)]))}
+  function clearStaleShipping(items){const fp=fingerprint(items),prev=localStorage.getItem('plug-checkout-cart-fingerprint');if(prev!==null&&prev!==fp)localStorage.removeItem('plug-supplier-shipping-quote');localStorage.setItem('plug-checkout-cart-fingerprint',fp)}
+  function renderCheckoutCart(){
+    if(location.hash!=='#checkout')return;
+    const summary=$('#checkout .checkout-summary');if(!summary)return;
+    const heading=$$('h4',summary).find(h=>/your cart/i.test(h.textContent||''));if(!heading)return;
+    const items=cart();clearStaleShipping(items);
+    $$('.checkout-cart-mini,.tp-checkout-empty',summary).forEach(n=>n.remove());
+    let anchor=heading;
+    if(!items.length){const p=document.createElement('p');p.className='tp-checkout-empty muted-note';p.textContent='Your cart is empty.';anchor.after(p);return}
+    for(const item of items){
+      const row=document.createElement('div');row.className='checkout-cart-mini';row.dataset.tpLiveCart='1';
+      row.innerHTML=`<img src="${esc(image(item))}" alt="${esc(title(item))}"><div><b>${esc(title(item))}</b><small>Qty ${qty(item)}</small><strong>${money(price(item)*qty(item))}</strong></div>`;
+      anchor.after(row);anchor=row;
+    }
+  }
+  function refresh(){setTimeout(renderCheckoutCart,0)}
+  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',refresh,{once:true});else refresh();
+  window.addEventListener('hashchange',refresh);window.addEventListener('storage',e=>{if(e.key==='plug-cart')refresh()});
+})();
