@@ -1,4 +1,21 @@
 (()=>{
+  document.title='the plug v2 ai build backend';
+  function installToast(){
+    const show=(msg)=>{
+      const el=document.getElementById('toast');
+      if(!el)return;
+      el.textContent=String(msg||'');
+      el.classList.add('show');
+      clearTimeout(show._timer);
+      show._timer=setTimeout(()=>el.classList.remove('show'),1900);
+    };
+    if(typeof window.toast!=='function'){
+      try{Object.defineProperty(window,'toast',{value:show,writable:true,configurable:true});}
+      catch{window.toast=show;}
+    }
+  }
+  installToast();
+
   const RIYAL_IMG='<img src="https://www.sama.gov.sa/ar-sa/Currency/Documents/Saudi_Riyal_Symbol-2.svg" alt="Saudi Riyal" style="height:.9em;width:.9em;object-fit:contain;vertical-align:-.08em">';
   let current={};
 
@@ -12,7 +29,7 @@
     if(!r.ok)throw new Error('Unable to save content settings');
     return r.json();
   }
-  function notify(msg){if(window.toast)window.toast(msg);else alert(msg)}
+  function notify(msg){if(typeof window.toast==='function')window.toast(msg);else alert(msg)}
 
   function build(){
     const section=document.getElementById('content');if(!section)return;
@@ -91,6 +108,7 @@
   }
 
   async function init(){
+    installToast();
     try{current=await getSettings()}catch(e){console.warn(e)}
     build();
     const nav=[...document.querySelectorAll('.sidebar [data-view]')].find(x=>x.dataset.view==='content');
