@@ -21,7 +21,24 @@ function round2(n){return Math.round((Number(n||0)+Number.EPSILON)*100)/100}
 function stateExists(){try{return fs.existsSync(STATE_PATH)&&fs.statSync(STATE_PATH).size>20}catch{return false}}
 async function newContext(){const browser=await chromium.launch({headless:HEADLESS,args:['--no-sandbox','--disable-dev-shm-usage']});let context;try{context=stateExists()?await browser.newContext({storageState:STATE_PATH,locale:'en-US'}):await browser.newContext({locale:'en-US'})}catch{context=await browser.newContext({locale:'en-US'})}return{browser,context}}
 async function saveState(context){try{fs.mkdirSync(path.dirname(STATE_PATH),{recursive:true});await context.storageState({path:STATE_PATH})}catch(e){console.error('Unable to save browser state',e.message)}}
-async function accountStatus(){const {browser,context}=await newContext();try{const page=await context.newPage();await page.goto(ACCOUNT,{waitUntil:'domcontentloaded',timeout:45000});await page.waitForTimeout(2500);const url=page.url();const body=(await page.locator('body').innerText().catch(()=>'' )).slice(0,4000);const loggedIn=!/authentication\/login/i.test(url)&&!/sign in|log in|verification code/i.test(body);await saveState(context);return{connected:loggedIn,url,reauth_required:!loggedIn,observed:body.slice(0,700),dealer_email:DEALER_EMAIL||null}}finally{await browser.close()}}
+async function accountStatus(){
+  if(!otpAuth.hasVerifiedSession())return{connected:false,reauth_required:true,verified:false,dealer_email:DEALER_EMAIL||null,reason:'otp_not_verified'};
+  let browser,context;
+  try{
+    ({browser,context}=await newContext());
+    const page=await context.newPage();
+    await page.goto(ACCOUNT,{waitUntil:'domcontentloaded',timeout:45000});
+    await page.waitForTimeout(2500);
+    const url=page.url();
+    const body=(await page.locator('body').innerText().catch(()=>'' )).slice(0,4000);
+    const emailField=await page.locator('input[type="email"],input[name="email"],input[autocomplete="email"]').count();
+    const codeField=await page.locator('input[autocomplete="one-time-code"],input[inputmode="numeric"],input[name*="code" i],input[id*="code" i]').count();
+    const authScreen=/authentication\/login/i.test(url)||/enter.*code|verification code|one[- ]time|otp|sign in|log in/i.test(body)||emailField>0||codeField>0;
+    if(authScreen){otpAuth.clearVerified();return{connected:false,reauth_required:true,verified:false,url,dealer_email:DEALER_EMAIL||null,reason:'session_expired'}}
+    return{connected:true,reauth_required:false,verified:true,url,dealer_email:DEALER_EMAIL||null};
+  }catch(e){return{connected:false,reauth_required:true,verified:false,dealer_email:DEALER_EMAIL||null,reason:'status_check_failed',error:String(e.message||e)}}
+  finally{if(browser)await browser.close().catch(()=>{})}
+}
 async function resolveProduct(page,item){const sku=String(item.sku||item.mfg_part_id||'').trim();const title=String(item.title||'').trim();if(item.url){await page.goto(item.url,{waitUntil:'domcontentloaded',timeout:45000});return page.url()}
   const q=encodeURIComponent(sku||title);await page.goto(`${BASE}/search?q=${q}`,{waitUntil:'domcontentloaded',timeout:45000});await page.waitForTimeout(1200);
   const links=page.locator('a[href*="/products/"]');const count=await links.count();if(!count)throw new Error(`Unable to find Valvetronic product for ${sku||title}`);
@@ -34,7 +51,7 @@ async function fillAddress(page,a){const fill=async(names,val)=>{if(!val)return;
   const country=page.locator('select[name*="country" i],select[id*="country" i]').first();if(await country.count()){await country.selectOption({label:/Saudi Arabia/i}).catch(async()=>{await country.selectOption('SA').catch(()=>{})})}
 }
 function parseMoney(text){const s=String(text||'').replace(/,/g,'');const m=s.match(/(?:SAR|ر\.س|SR|USD|\$)?\s*([0-9]+(?:\.[0-9]{1,2})?)/i);return m?Number(m[1]):null}
-async function quoteValvetronic(payload){const items=Array.isArray(payload.items)?payload.items:[];if(!items.length)throw new Error('No items supplied');const {browser,context}=await newContext();try{const page=await context.newPage();await page.goto(ACCOUNT,{waitUntil:'domcontentloaded',timeout:45000});await page.waitForTimeout(1600);if(/authentication\/login/i.test(page.url()))return{ok:false,reauth_required:true,error:'Valvetronic dealer session is not authenticated'};
+async function quoteValvetronic(payload){const items=Array.isArray(payload.items)?payload.items:[];if(!items.length)throw new Error('No items supplied');if(!otpAuth.hasVerifiedSession())return{ok:false,reauth_required:true,error:'Valvetronic dealer session has not been OTP-verified'};const {browser,context}=await newContext();try{const page=await context.newPage();await page.goto(ACCOUNT,{waitUntil:'domcontentloaded',timeout:45000});await page.waitForTimeout(1600);if(/authentication\/login/i.test(page.url())){otpAuth.clearVerified();return{ok:false,reauth_required:true,error:'Valvetronic dealer session is not authenticated'}};
     const stocks=[];for(const item of items){const url=await resolveProduct(page,item);const stock=await detectStock(page);stocks.push({product_id:item.product_id||null,sku:item.sku||item.mfg_part_id||'',url,...stock});if(!stock.available)return{ok:true,supplier:'Valvetronic Designs',available:false,stocks,shipping:null};await addToCart(page,Math.max(1,Number(item.qty||1)))}
     await page.goto(`${BASE}/cart`,{waitUntil:'domcontentloaded',timeout:45000});const checkout=page.getByRole('button',{name:/checkout/i}).first();if(await checkout.count())await checkout.click({timeout:12000});else{const link=page.getByRole('link',{name:/checkout/i}).first();if(await link.count())await link.click({timeout:12000});else throw new Error('Checkout button not found')}
     await page.waitForLoadState('domcontentloaded',{timeout:45000}).catch(()=>{});await fillAddress(page,payload.address||{});const cont=page.getByRole('button',{name:/continue|shipping|delivery/i}).first();if(await cont.count())await cont.click().catch(()=>{});await page.waitForTimeout(3500);
@@ -44,7 +61,7 @@ async function quoteValvetronic(payload){const items=Array.isArray(payload.items
   }finally{await browser.close()}}
 async function orderValvetronic(payload){if(!AUTO_ORDER_ENABLED)return{ok:false,blocked:true,error:'Auto ordering is disabled while the Valvetronic connector is in validation mode'};return{ok:false,error:'Order submission is intentionally not enabled until quote validation is completed'}}
 
-const server=http.createServer(async(req,res)=>{const u=new URL(req.url,'http://localhost');if(u.pathname==='/health')return json(res,{ok:true,service:'the-plug-supplier-worker',auto_order:AUTO_ORDER_ENABLED,state_present:stateExists(),dealer_email_configured:!!DEALER_EMAIL});if(!auth(req,res))return;
+const server=http.createServer(async(req,res)=>{const u=new URL(req.url,'http://localhost');if(u.pathname==='/health')return json(res,{ok:true,service:'the-plug-supplier-worker',auto_order:AUTO_ORDER_ENABLED,state_present:stateExists(),dealer_email_configured:!!DEALER_EMAIL,otp_verified:otpAuth.hasVerifiedSession()});if(!auth(req,res))return;
   try{
     if(u.pathname==='/suppliers/valvetronic/status'&&req.method==='GET')return json(res,await accountStatus());
     if(u.pathname==='/suppliers/valvetronic/auth/start'&&req.method==='POST'){const d=await readJson(req);return json(res,await otpAuth.start(d.email));}
