@@ -43,7 +43,6 @@
     if(!s?.make)return [];
     const key=JSON.stringify(s);
     if(key===fitmentCacheKey&&fitmentCache.length)return fitmentCache;
-
     const modes=['exact','model-chassis','model-engine','model','raw-model','make-chassis'];
     const batches=await Promise.all(modes.map(m=>getRows(s,m)));
     const seen=new Set(),rows=[];
@@ -74,14 +73,56 @@
   }
   function jsonResponse(data){return new Response(JSON.stringify(data),{status:200,headers:{'content-type':'application/json','cache-control':'no-store'}})}
 
+  function installVehicleShopStyles(){
+    if(document.getElementById('tp-vehicle-shop-layout-fix'))return;
+    const style=document.createElement('style');
+    style.id='tp-vehicle-shop-layout-fix';
+    style.textContent=`
+      #shop .shop-products{display:grid!important;grid-template-columns:repeat(3,minmax(0,1fr))!important;gap:24px!important;align-items:stretch!important}
+      #shop .shop-products .product-card{min-width:0!important;width:auto!important;display:flex!important;flex-direction:column!important}
+      #shop .shop-products .product-image{height:260px!important;border:1px solid #eceeef!important;background:#fff!important;display:flex!important;align-items:center!important;justify-content:center!important;overflow:hidden!important;margin-bottom:12px!important}
+      #shop .shop-products .product-image img{display:block!important;width:100%!important;height:100%!important;object-fit:contain!important;padding:16px!important}
+      #shop .shop-products .product-card h3{font-size:17px!important;line-height:1.25!important;margin:7px 0 8px!important;min-height:44px!important;letter-spacing:0!important}
+      #shop .shop-products .product-card .price{margin-top:auto!important;margin-bottom:12px!important}
+      #shop .shop-products .product-card .btn.full{width:100%!important;min-height:44px!important}
+      @media(max-width:1100px){#shop .shop-products{grid-template-columns:repeat(2,minmax(0,1fr))!important}}
+      @media(max-width:680px){#shop .shop-products{grid-template-columns:1fr!important;gap:18px!important}#shop .shop-products .product-image{height:230px!important}}
+    `;
+    document.head.appendChild(style);
+  }
+  function vehicleTitle(selected){
+    const s=normalizedSelected(selected);if(!s)return 'Compatible Parts';
+    return ['Parts for',s.make,s.model,s.submodel&&s.submodel!=='Standard'?s.submodel:''].filter(Boolean).join(' ');
+  }
+  function resetShopFromCategoryState(){
+    const selected=getSelected();
+    if(!selected)return;
+    localStorage.removeItem('plug-selected-category');
+    const shop=document.getElementById('shop');
+    if(!shop)return;
+    const title=vehicleTitle(selected);
+    const crumbs=shop.querySelector('.breadcrumbs');if(crumbs)crumbs.textContent='Home / Shop by Car / '+title.replace(/^Parts for /,'');
+    const h=shop.querySelector('.pagehead');if(h)h.textContent=title;
+    const firstGroup=shop.querySelector('.filter-group');if(firstGroup)firstGroup.innerHTML='<strong>VEHICLE FITMENT</strong><div style="font-size:13px;line-height:1.55;color:#5e6b75">Showing all products compatible with your selected vehicle across every product category.</div>';
+  }
+  function refreshVehicleHeaderSoon(){
+    [0,120,300,700].forEach(ms=>setTimeout(resetShopFromCategoryState,ms));
+  }
+
+  const initialSelected=getSelected();
+  if(initialSelected)localStorage.removeItem('plug-selected-category');
+  installVehicleShopStyles();
+  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',refreshVehicleHeaderSoon,{once:true});else refreshVehicleHeaderSoon();
+  window.addEventListener('hashchange',()=>{if(location.hash==='#shop'&&getSelected())refreshVehicleHeaderSoon()});
+
   window.fetch=async(input,init)=>{
     const url=typeof input==='string'?input:(input&&input.url)||'';
     const selected=getSelected();
-
     if(selected&&(url.startsWith('/api/products?')||url==='/api/products')){
-      return jsonResponse(await readVehicleProducts(selected));
+      const products=await readVehicleProducts(selected);
+      refreshVehicleHeaderSoon();
+      return jsonResponse(products);
     }
-
     if(url.startsWith('/api/admin/fitments')){
       if(selected?.make||selected?.brand){
         const rows=await readFitments(selected);
