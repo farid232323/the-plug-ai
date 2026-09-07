@@ -2,11 +2,17 @@
   if(window.__plugSiteContentLoaded)return;window.__plugSiteContentLoaded=true;
   const RIYAL_SVG='https://www.sama.gov.sa/ar-sa/Currency/Documents/Saudi_Riyal_Symbol-2.svg';
   const pricePattern=/\b(?:SR|SAR)(?=\s*[0-9])/g;
+  const INSTAGRAM_URL='https://www.instagram.com/the.plugksa/';
   let siteSettings={};
 
   function installStyle(){
     if(document.getElementById('plug-riyal-style'))return;
-    const s=document.createElement('style');s.id='plug-riyal-style';s.textContent=`.plug-riyal-symbol{display:inline-block;width:.82em;height:.82em;object-fit:contain;vertical-align:-.08em;margin-right:.18em;filter:none}.shipping .plug-riyal-symbol{height:.9em;width:.9em}`;document.head.appendChild(s);
+    const s=document.createElement('style');s.id='plug-riyal-style';s.textContent=`
+      .plug-riyal-symbol{display:inline-block;width:.82em;height:.82em;object-fit:contain;vertical-align:-.08em;margin-right:.18em;filter:none}.shipping .plug-riyal-symbol{height:.9em;width:.9em}
+      .newsletter-footer .footer-logo img{filter:none!important;width:130px!important;height:auto!important;display:block!important;background:#fff!important;padding:12px 14px!important;object-fit:contain!important}
+      .newsletter-footer .socials a{width:27px;height:27px;border-radius:50%;background:#fff;color:#111;display:grid;place-items:center;font-size:12px;font-weight:700;text-decoration:none;margin:0!important}
+      .newsletter-footer .tp-footer-support{display:none!important}
+    `;document.head.appendChild(s);
   }
 
   function symbol(){const i=document.createElement('img');i.className='plug-riyal-symbol';i.src=RIYAL_SVG;i.alt='Saudi Riyal';i.setAttribute('aria-label','Saudi Riyal');return i}
@@ -40,6 +46,31 @@
     el.append(document.createTextNode(text.slice(0,idx)),symbol(),document.createTextNode(' '+threshold+text.slice(idx+token.length)));
   }
 
+  function polishFooter(){
+    const footer=document.querySelector('.newsletter-footer');if(!footer)return;
+    footer.querySelectorAll('.tp-footer-support').forEach(x=>x.remove());
+    const cols=[...footer.querySelectorAll('.footer-grid > div')];
+    if(cols[0]&&cols[0].dataset.plugSupport!=='1'){
+      cols[0].dataset.plugSupport='1';
+      cols[0].innerHTML='<h4>Customer Support</h4><a href="#about">About Us</a><a href="#contact">Contact us</a><a href="#contact">FAQs</a>';
+    }
+    if(cols[2]&&cols[2].dataset.plugPolicies!=='1'){
+      cols[2].dataset.plugPolicies='1';
+      cols[2].innerHTML='<h4>Help</h4><a href="#policy">Terms & conditions</a><a href="#policy">Privacy policy</a><a href="#policy">Return & refund policy</a>';
+    }
+    const logo=footer.querySelector('.footer-logo img');
+    if(logo){logo.src='assets/logo.png';logo.alt='The Plug';}
+    const socials=footer.querySelector('.socials');
+    if(socials){
+      const items=[...socials.children];
+      if(items[1]&&!items[1].matches('a[data-instagram]')){
+        const a=document.createElement('a');a.dataset.instagram='1';a.href=INSTAGRAM_URL;a.target='_blank';a.rel='noopener noreferrer';a.setAttribute('aria-label','The Plug on Instagram');a.textContent='◎';items[1].replaceWith(a);
+      }
+    }
+    const legal=footer.querySelector('.legal');
+    if(legal){legal.innerHTML='© 2026 The Plug. All rights reserved.';}
+  }
+
   function applyContent(){
     const s=siteSettings||{};
     const shipping=document.querySelector('.shipping');
@@ -64,6 +95,7 @@
       if(!m){m=document.createElement('meta');m.name='description';document.head.appendChild(m)}
       m.content=s.seo_description;
     }
+    polishFooter();
     replaceCurrency(document.body);
   }
 
