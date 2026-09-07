@@ -6,6 +6,20 @@
   const cancel=k=>{if(timers[k]){clearTimeout(timers[k]);timers[k]=null}};
   const later=(k,fn)=>{cancel(k);timers[k]=setTimeout(fn,90)};
 
+  // Keep every Shop by Car column independently scrollable when its list is longer
+  // than the visible mega-menu. Important overrides protect this from older menu CSS.
+  const scrollFix=document.createElement('style');
+  scrollFix.textContent=`
+    .tp3-steps{height:min(560px,calc(100vh - 235px))!important;min-height:0!important;max-height:none!important;overflow:hidden!important}
+    .tp3-col,.tp3-summary{min-height:0!important;max-height:100%!important;overflow-y:auto!important;overflow-x:hidden!important;overscroll-behavior:contain!important;scrollbar-gutter:stable}
+    .tp3-col{-webkit-overflow-scrolling:touch!important}
+    @media(max-width:900px){
+      .tp3-steps{height:calc(100% - 86px)!important;min-height:0!important;max-height:none!important}
+      .tp3-col.mobile-active,.tp3-summary.mobile-active{height:100%!important;overflow-y:auto!important}
+    }
+  `;
+  document.head.appendChild(scrollFix);
+
   function closeCar(){
     document.querySelector('.tp3-panel')?.classList.remove('open');
     document.querySelector('.tp3-backdrop')?.classList.remove('open');
