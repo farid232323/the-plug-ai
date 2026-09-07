@@ -56,6 +56,28 @@
     }
   }
 
+  function dedupeVehicleBrands(){
+    const buttons=[...document.querySelectorAll('.tp3-brand [data-b]')];
+    if(buttons.length<2)return;
+    const groups=new Map();
+    for(const b of buttons){
+      const key=String(b.dataset.b||b.textContent||'').trim().toLowerCase();
+      if(!key)continue;
+      if(!groups.has(key))groups.set(key,[]);
+      groups.get(key).push(b);
+    }
+    for(const [key,group] of groups){
+      if(group.length<2)continue;
+      const canonical=key==='audi'?'Audi':key.replace(/\b\w/g,c=>c.toUpperCase());
+      const keep=group.find(b=>String(b.dataset.b||'').trim()===canonical)
+        || group.find(b=>String(b.dataset.b||'').trim()!==String(b.dataset.b||'').trim().toUpperCase())
+        || group[0];
+      const hiddenActive=group.some(b=>b!==keep&&b.classList.contains('active'));
+      group.forEach(b=>{if(b!==keep)b.style.display='none'});
+      if(hiddenActive&&!keep.classList.contains('active'))setTimeout(()=>keep.click(),0);
+    }
+  }
+
   function init(){
     wireOne(byText('shop by car'),'car',['.tp3-panel','.tp2-menu','.tp-car-mega'],closeCar);
     wireOne(byText('shop by brand'),'brand',['.tp-modern-brand-panel','.tp-brand-menu'],closeBrand);
@@ -73,6 +95,8 @@
 
     document.addEventListener('mouseleave',()=>{if(innerWidth>=DESKTOP)closeAll()});
     window.addEventListener('blur',()=>{if(innerWidth>=DESKTOP)closeAll()});
+    dedupeVehicleBrands();
+    new MutationObserver(dedupeVehicleBrands).observe(document.documentElement,{childList:true,subtree:true});
   }
   if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',init);else init();
 })();
