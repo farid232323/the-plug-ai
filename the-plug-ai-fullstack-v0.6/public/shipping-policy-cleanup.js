@@ -1,4 +1,5 @@
 (()=>{
+  document.title='the plug v2 ai build';
   const FREE_HEADING=/^Free standard shipping$/i;
   function cleanShippingPolicy(){
     const root=document.querySelector('#policyCopy');
