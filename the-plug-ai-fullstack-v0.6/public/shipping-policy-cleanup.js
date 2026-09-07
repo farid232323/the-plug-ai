@@ -11,7 +11,14 @@
       h.remove();
     });
   }
-  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',cleanShippingPolicy,{once:true});else cleanShippingPolicy();
+  function loadApprovedFrontendPolish(){
+    if(document.querySelector('script[data-approved-shop-car-footer]'))return;
+    const s=document.createElement('script');
+    s.src='/approved-shop-car-footer.js?v=1';
+    s.dataset.approvedShopCarFooter='1';
+    document.head.appendChild(s);
+  }
+  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',()=>{cleanShippingPolicy();loadApprovedFrontendPolish()},{once:true});else{cleanShippingPolicy();loadApprovedFrontendPolish()}
   const obs=new MutationObserver(cleanShippingPolicy);
   obs.observe(document.documentElement,{childList:true,subtree:true});
 })();
