@@ -46,6 +46,15 @@ module.exports=function createSupplierApi({db,json,readJson,adminAuthorized,admi
     if(u.pathname==='/api/admin/suppliers/valvetronic/status'&&req.method==='GET'){
       try{return json(res,{configured:ready(),worker:await worker('/suppliers/valvetronic/status')})}catch(e){return json(res,{configured:ready(),error:String(e.message||e)},502)}
     }
+    if(u.pathname==='/api/admin/suppliers/valvetronic/auth/start'&&req.method==='POST'){
+      const d=await readJson(req);try{return json(res,await worker('/suppliers/valvetronic/auth/start',{method:'POST',body:JSON.stringify({email:clean(d.email)})}))}catch(e){return json(res,{error:String(e.message||e)},502)}
+    }
+    if(u.pathname==='/api/admin/suppliers/valvetronic/auth/verify'&&req.method==='POST'){
+      const d=await readJson(req);try{return json(res,await worker('/suppliers/valvetronic/auth/verify',{method:'POST',body:JSON.stringify({code:clean(d.code)})}))}catch(e){return json(res,{error:String(e.message||e)},502)}
+    }
+    if(u.pathname==='/api/admin/suppliers/valvetronic/auth/cancel'&&req.method==='POST'){
+      try{return json(res,await worker('/suppliers/valvetronic/auth/cancel',{method:'POST',body:'{}'}))}catch(e){return json(res,{error:String(e.message||e)},502)}
+    }
     return false;
   }
   return{quote,admin};
