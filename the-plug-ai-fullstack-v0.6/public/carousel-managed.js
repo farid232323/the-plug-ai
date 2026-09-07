@@ -1,8 +1,8 @@
 (()=>{
+  const RETIRED_PORSCHE_URL='https://images.unsplash.com/photo-1591076898712-f658e1e7edfb?auto=format&fit=crop&w=2200&q=85';
   const fallback=[
     {image:'https://images.unsplash.com/photo-1774066811800-448b846647a2?auto=format&fit=crop&w=2200&q=85',label:'Mercedes-AMG GT',position:'center 55%'},
     {image:'https://images.unsplash.com/photo-1762028159677-e45ac537a29a?auto=format&fit=crop&w=2200&q=85',label:'Audi RS6',position:'center 55%'},
-    {image:'https://images.unsplash.com/photo-1591076898712-f658e1e7edfb?auto=format&fit=crop&w=2200&q=85',label:'Porsche 911',position:'center 58%'},
     {image:'https://images.unsplash.com/photo-1707406767272-8c1deea8f5b8?auto=format&fit=crop&w=2200&q=85',label:'BMW M3 Engine Bay',position:'center 48%'}
   ];
   const css=document.createElement('style');css.textContent=`
@@ -20,7 +20,9 @@
     .tp-managed-dot.active{background:#F8FF66!important;border-color:#F8FF66!important}
     @media(max-width:720px){#home .tp-hero .tp-hero-inner{padding-bottom:88px!important}.tp-managed-controls{right:14px!important;bottom:14px!important}.tp-managed-controls [data-prev],.tp-managed-controls [data-next]{width:32px;height:32px}}
   `;document.head.appendChild(css);
-  async function run(){let slides=fallback;try{const r=await fetch('/api/carousel',{cache:'no-store'});const d=await r.json();if(Array.isArray(d.slides)&&d.slides.length)slides=d.slides}catch{}
+  const cleanSlides=list=>(Array.isArray(list)?list:[]).filter(s=>s&&s.image&&String(s.image)!==RETIRED_PORSCHE_URL);
+  async function run(){let slides=fallback;try{const r=await fetch('/api/carousel',{cache:'no-store'});const d=await r.json();const saved=cleanSlides(d.slides);if(saved.length)slides=saved}catch{}
+    slides=cleanSlides(slides);
     const hero=document.querySelector('#home .tp-hero');if(!hero)return setTimeout(run,150);
     hero.querySelector('.tp-hero-slides')?.remove();hero.querySelector('.tp-hero-controls')?.remove();hero.querySelector('.tp-managed-slides')?.remove();hero.querySelector('.tp-managed-controls')?.remove();
     const wrap=document.createElement('div');wrap.className='tp-managed-slides';slides.forEach((s,i)=>{const d=document.createElement('div');d.className='tp-managed-slide'+(i===0?' active':'');d.style.backgroundImage=`url("${String(s.image).replace(/"/g,'%22')}")`;d.style.backgroundPosition=s.position||'center center';d.setAttribute('aria-label',s.label||'European performance');wrap.appendChild(d)});hero.prepend(wrap);
