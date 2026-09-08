@@ -46,8 +46,8 @@ async function details(req,res){
   }catch(e){return json(res,{error:'Address details are temporarily unavailable.'},502)}
 }
 
-function serveScript(res){
-  try{const b=fs.readFileSync(path.join(ROOT,'public','saudi-address-live.js'));res.writeHead(200,{'content-type':'application/javascript; charset=utf-8','content-length':b.length,'cache-control':'no-store'});res.end(b)}catch{res.writeHead(404);res.end('Not found')}
+function servePublicScript(res,file){
+  try{const b=fs.readFileSync(path.join(ROOT,'public',file));res.writeHead(200,{'content-type':'application/javascript; charset=utf-8','content-length':b.length,'cache-control':'no-store'});res.end(b)}catch{res.writeHead(404);res.end('Not found')}
 }
 
 function proxy(req,res){
@@ -55,12 +55,12 @@ function proxy(req,res){
   const pr=http.request({hostname:'127.0.0.1',port:INNER_PORT,path:req.url,method:req.method,headers},pres=>{
     const type=String(pres.headers['content-type']||'');
     if(req.method==='GET'&&type.includes('text/html')){
-      const chunks=[];pres.on('data',c=>chunks.push(c));pres.on('end',()=>{let s=Buffer.concat(chunks).toString('utf8');if(!s.includes('saudi-address-autocomplete.js'))s=s.replace(/<\/body>/i,'<script src="/saudi-address-autocomplete.js"></script></body>');const b=Buffer.from(s);const h={...pres.headers,'content-length':b.length,'cache-control':'no-store'};delete h['content-encoding'];delete h['transfer-encoding'];res.writeHead(pres.statusCode||200,h);res.end(b)});return;
+      const chunks=[];pres.on('data',c=>chunks.push(c));pres.on('end',()=>{let s=Buffer.concat(chunks).toString('utf8');const tags=[];if(!s.includes('saudi-address-autocomplete.js'))tags.push('<script src="/saudi-address-autocomplete.js"></script>');if(!s.includes('cart-source-of-truth.js'))tags.push('<script src="/cart-source-of-truth.js"></script>');if(tags.length)s=s.replace(/<\/body>/i,tags.join('')+'</body>');const b=Buffer.from(s);const h={...pres.headers,'content-length':b.length,'cache-control':'no-store'};delete h['content-encoding'];delete h['transfer-encoding'];res.writeHead(pres.statusCode||200,h);res.end(b)});return;
     }
     res.writeHead(pres.statusCode||500,pres.headers);pres.pipe(res);
   });
   pr.on('error',()=>{if(!res.headersSent)res.writeHead(502);res.end('Bad gateway')});req.pipe(pr);
 }
 
-const server=http.createServer((req,res)=>{const u=new URL(req.url,'http://localhost');if(u.pathname==='/api/places/autocomplete'&&req.method==='POST')return autocomplete(req,res);if(u.pathname==='/api/places/details'&&req.method==='POST')return details(req,res);if(u.pathname==='/saudi-address-autocomplete.js'&&req.method==='GET')return serveScript(res);proxy(req,res)});
+const server=http.createServer((req,res)=>{const u=new URL(req.url,'http://localhost');if(u.pathname==='/api/places/autocomplete'&&req.method==='POST')return autocomplete(req,res);if(u.pathname==='/api/places/details'&&req.method==='POST')return details(req,res);if(u.pathname==='/saudi-address-autocomplete.js'&&req.method==='GET')return servePublicScript(res,'saudi-address-live.js');if(u.pathname==='/cart-source-of-truth.js'&&req.method==='GET')return servePublicScript(res,'cart-source-of-truth.js');proxy(req,res)});
 server.listen(PUBLIC_PORT,()=>console.log(`Places gateway on :${PUBLIC_PORT}; app on :${INNER_PORT}`));
