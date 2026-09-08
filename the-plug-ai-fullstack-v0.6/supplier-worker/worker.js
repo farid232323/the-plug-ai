@@ -3,6 +3,9 @@ const fs=require('fs');
 const path=require('path');
 const { chromium }=require('playwright');
 const createValvetronicAuth=require('./valvetronic-auth');
+const createRegistry=require('./supplier-registry');
+const createShopifyAdapter=require('./generic-shopify');
+const createGenericOtpAuth=require('./generic-otp-auth');
 
 const PORT=Number(process.env.PORT||4180);
 const SHARED_SECRET=process.env.SUPPLIER_WORKER_SECRET||'';
@@ -13,6 +16,9 @@ const DEALER_EMAIL=String(process.env.VALVETRONIC_DEALER_EMAIL||'').trim();
 const BASE='https://valvetronic.com';
 const ACCOUNT='https://account.valvetronic.com';
 const otpAuth=createValvetronicAuth({accountUrl:ACCOUNT,statePath:STATE_PATH,headless:HEADLESS,email:DEALER_EMAIL});
+const registry=createRegistry(process.env.SUPPLIER_REGISTRY_PATH||'/data/suppliers.json');
+const shopify=createShopifyAdapter({headless:HEADLESS,dataDir:'/data'});
+const genericOtp=createGenericOtpAuth({headless:HEADLESS,dataDir:'/data'});
 
 function json(res,obj,status=200){const b=Buffer.from(JSON.stringify(obj));res.writeHead(status,{'content-type':'application/json','content-length':b.length,'cache-control':'no-store'});res.end(b)}
 function readJson(req){return new Promise(resolve=>{const a=[];req.on('data',c=>a.push(c));req.on('end',()=>{try{resolve(JSON.parse(Buffer.concat(a).toString()||'{}'))}catch{resolve({})}});req.on('error',()=>resolve({}))})}
@@ -36,5 +42,27 @@ async function checkoutShippingFallback(page,a){await page.goto(`${BASE}/cart`,{
 async function quoteValvetronic(payload){const items=Array.isArray(payload.items)?payload.items:[];if(!items.length)throw new Error('No items supplied');if(!otpAuth.hasVerifiedSession())return{ok:false,reauth_required:true,error:'Valvetronic dealer session has not been verified'};const {browser,context}=await newContext();try{const page=await context.newPage();await page.goto(ACCOUNT,{waitUntil:'domcontentloaded',timeout:45000});await page.waitForTimeout(1600);if(/authentication\/login/i.test(page.url())){otpAuth.clearVerified();return{ok:false,reauth_required:true,error:'Valvetronic dealer session is not authenticated'}}await page.goto(`${BASE}/cart/clear`,{waitUntil:'domcontentloaded',timeout:45000}).catch(()=>{});const stocks=[];for(const item of items){const url=await resolveProduct(page,item);const stock=await detectStock(page);stocks.push({product_id:item.product_id||null,sku:item.sku||item.mfg_part_id||'',url,...stock});if(!stock.available)return{ok:true,supplier:'Valvetronic Designs',available:false,stocks,shipping:null};await addToCart(page,Math.max(1,Number(item.qty||1)))}const apiRates=await shopifyShippingRates(page,payload.address||{});if(apiRates&&apiRates.length){await saveState(context);const best=apiRates[0];return{ok:true,supplier:'Valvetronic Designs',available:true,stocks,shipping:{amount:best.price,source_currency:best.currency,method:best.name,all_rates:apiRates,quoted_at:new Date().toISOString()},dealer_session:true,rate_source:'shopify_cart_api'}}const fallback=await checkoutShippingFallback(page,payload.address||{});await saveState(context);if(!fallback.rates.length)return{ok:false,available:true,stocks,shipping:null,error:'Shipping rate could not be read automatically',diagnostic:{url:fallback.url,shipping_lines:fallback.lines}};const best=fallback.rates[0];return{ok:true,supplier:'Valvetronic Designs',available:true,stocks,shipping:{amount:best.price,source_currency:best.currency,method:best.name,all_rates:fallback.rates,quoted_at:new Date().toISOString()},dealer_session:true,rate_source:'checkout_fallback'}}finally{await browser.close()}}
 async function orderValvetronic(){if(!AUTO_ORDER_ENABLED)return{ok:false,blocked:true,error:'Auto ordering is disabled while the Valvetronic connector is in validation mode'};return{ok:false,error:'Order submission is intentionally not enabled until quote validation is completed'}}
 
-const server=http.createServer(async(req,res)=>{const u=new URL(req.url,'http://localhost');if(u.pathname==='/health')return json(res,{ok:true,service:'the-plug-supplier-worker',auto_order:AUTO_ORDER_ENABLED,state_present:stateExists(),dealer_email_configured:!!DEALER_EMAIL,otp_verified:otpAuth.hasVerifiedSession()});if(!auth(req,res))return;try{if(u.pathname==='/suppliers/valvetronic/status'&&req.method==='GET')return json(res,await accountStatus());if(u.pathname==='/suppliers/valvetronic/auth/start'&&req.method==='POST'){const d=await readJson(req);return json(res,await otpAuth.start(d.email));}if(u.pathname==='/suppliers/valvetronic/auth/verify'&&req.method==='POST'){const d=await readJson(req);return json(res,await otpAuth.verify(d.code));}if(u.pathname==='/suppliers/valvetronic/auth/cancel'&&req.method==='POST')return json(res,await otpAuth.clearPending());if(u.pathname==='/suppliers/valvetronic/quote'&&req.method==='POST')return json(res,await quoteValvetronic(await readJson(req)));if(u.pathname==='/suppliers/valvetronic/order'&&req.method==='POST')return json(res,await orderValvetronic(await readJson(req)));return json(res,{error:'Not found'},404)}catch(e){console.error(e);return json(res,{ok:false,error:String(e.message||e)},500)}});
+function safeSupplier(s){return{slug:s.slug,name:s.name,brand_matches:s.brand_matches||[],adapter:s.adapter,enabled:!!s.enabled,base_url:s.base_url||'',login_url:s.login_url||'',username:s.username||'',auth_mode:s.auth_mode||'',otp_mode:s.otp_mode||''}}
+async function supplierStatus(s){if(s.slug==='valvetronic')return{...safeSupplier(s),...(await accountStatus())};const a=genericOtp.status(s),b=await shopify.status(s);return{...safeSupplier(s),...b,...a}}
+async function supplierQuote(s,payload){if(!s.enabled)throw new Error(`${s.name} connector is disabled`);if(s.slug==='valvetronic'||s.adapter==='valvetronic')return quoteValvetronic(payload);if(s.adapter==='shopify')return shopify.quote(s,payload);throw new Error(`Unsupported supplier adapter: ${s.adapter}`)}
+async function genericStart(s,d){if(s.slug==='valvetronic')return otpAuth.start(d.email||d.username);return genericOtp.start(s,d.email||d.username||s.username)}
+async function genericVerify(s,d){if(s.slug==='valvetronic')return otpAuth.verify(d.code);return genericOtp.verify(s,d.code)}
+async function genericCancel(s){if(s.slug==='valvetronic')return otpAuth.clearPending();return genericOtp.close(s.slug)}
+
+const server=http.createServer(async(req,res)=>{
+  const u=new URL(req.url,'http://localhost');if(u.pathname==='/health')return json(res,{ok:true,service:'the-plug-supplier-worker',auto_order:AUTO_ORDER_ENABLED,state_present:stateExists(),dealer_email_configured:!!DEALER_EMAIL,otp_verified:otpAuth.hasVerifiedSession(),supplier_count:registry.list().length});if(!auth(req,res))return;
+  try{
+    if(u.pathname==='/suppliers'&&req.method==='GET'){const rows=[];for(const s of registry.list())rows.push(await supplierStatus(s));return json(res,{suppliers:rows})}
+    if(u.pathname==='/suppliers/configure'&&req.method==='POST'){const s=registry.upsert(await readJson(req));return json(res,{ok:true,supplier:await supplierStatus(s)})}
+    if(u.pathname==='/suppliers/quote'&&req.method==='POST'){const d=await readJson(req);const s=d.supplier_slug?registry.get(String(d.supplier_slug)):registry.matchBrand(d.brand);if(!s)return json(res,{error:`No enabled supplier connector is configured for ${d.brand||d.supplier_slug||'this brand'}`},409);return json(res,await supplierQuote(s,d))}
+    const m=u.pathname.match(/^\/suppliers\/([^/]+)\/(status|quote|auth\/start|auth\/verify|auth\/cancel|auth\/otp|order)$/);if(m){const s=registry.get(m[1]);if(!s)return json(res,{error:'Supplier not found'},404);const action=m[2];if(action==='status'&&req.method==='GET')return json(res,await supplierStatus(s));if(action==='quote'&&req.method==='POST')return json(res,await supplierQuote(s,await readJson(req)));if(action==='auth/start'&&req.method==='POST')return json(res,await genericStart(s,await readJson(req)));if(action==='auth/verify'&&req.method==='POST')return json(res,await genericVerify(s,await readJson(req)));if(action==='auth/otp'&&req.method==='POST')return json(res,await genericVerify(s,await readJson(req)));if(action==='auth/cancel'&&req.method==='POST')return json(res,await genericCancel(s));if(action==='order'&&req.method==='POST'){if(s.slug==='valvetronic')return json(res,await orderValvetronic(await readJson(req)));return json(res,{ok:false,blocked:true,error:'Automated ordering is not enabled for this supplier yet'},409)}}
+    if(u.pathname==='/suppliers/valvetronic/status'&&req.method==='GET')return json(res,await accountStatus());
+    if(u.pathname==='/suppliers/valvetronic/auth/start'&&req.method==='POST'){const d=await readJson(req);return json(res,await otpAuth.start(d.email));}
+    if(u.pathname==='/suppliers/valvetronic/auth/verify'&&req.method==='POST'){const d=await readJson(req);return json(res,await otpAuth.verify(d.code));}
+    if(u.pathname==='/suppliers/valvetronic/auth/cancel'&&req.method==='POST')return json(res,await otpAuth.clearPending());
+    if(u.pathname==='/suppliers/valvetronic/quote'&&req.method==='POST')return json(res,await quoteValvetronic(await readJson(req)));
+    if(u.pathname==='/suppliers/valvetronic/order'&&req.method==='POST')return json(res,await orderValvetronic(await readJson(req)));
+    return json(res,{error:'Not found'},404)
+  }catch(e){console.error(e);return json(res,{ok:false,error:String(e.message||e)},500)}
+});
 server.listen(PORT,()=>console.log(`The Plug supplier worker listening on :${PORT}`));
