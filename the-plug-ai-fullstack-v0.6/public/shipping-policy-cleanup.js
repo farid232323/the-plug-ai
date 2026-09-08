@@ -46,7 +46,14 @@
     s.dataset.approvedShopCarFooter='1';
     document.head.appendChild(s);
   }
-  const init=()=>{cleanShippingPolicy();normalizeRiyalSymbol();loadApprovedFrontendPolish()};
+  function loadCheckoutShippingState(){
+    if(document.querySelector('script[data-checkout-shipping-state]'))return;
+    const s=document.createElement('script');
+    s.src='/checkout-shipping-state.js?v=1';
+    s.dataset.checkoutShippingState='1';
+    document.head.appendChild(s);
+  }
+  const init=()=>{cleanShippingPolicy();normalizeRiyalSymbol();loadApprovedFrontendPolish();loadCheckoutShippingState()};
   if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',init,{once:true});else init();
   const obs=new MutationObserver(()=>{cleanShippingPolicy();normalizeRiyalSymbol()});
   obs.observe(document.documentElement,{childList:true,subtree:true});
