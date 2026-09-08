@@ -27,7 +27,8 @@
     const byLabel=label=>rows.find(r=>new RegExp('^'+label+'$','i').test((r.firstElementChild?.textContent||'').trim()));
     return {summary,shipping:byLabel('Shipping')||byLabel('Delivery'),vat:rows.find(r=>/^VAT\s*\(15%\)$/i.test((r.firstElementChild?.textContent||'').trim())),total:rows.find(r=>/^Total$/i.test((r.firstElementChild?.textContent||'').trim()))};
   }
-  function setRow(row,value){if(!row)return;const out=row.lastElementChild;if(out)out.textContent=value}
+  function setRow(row,value){if(!row)return;const out=row.lastElementChild;if(out&&out.textContent!==value)out.textContent=value}
+  function setPlaceState(place,disabled,title){if(!place)return;if(place.disabled!==disabled)place.disabled=disabled;if(place.title!==title)place.title=title}
   function render(){
     if(location.hash!=='#checkout')return;
     const rows=findSummaryRows();if(!rows)return;
@@ -38,7 +39,7 @@
       setRow(rows.shipping,'Not calculated');
       setRow(rows.vat,'—');
       setRow(rows.total,'—');
-      if(place){place.disabled=true;place.title='Calculate live shipping before placing the order.'}
+      setPlaceState(place,true,'Calculate live shipping before placing the order.');
       localStorage.removeItem('plug-checkout-total-state');
       return;
     }
@@ -47,8 +48,12 @@
     setRow(rows.shipping,money(shipping));
     setRow(rows.vat,money(vat));
     setRow(rows.total,money(total));
-    if(place){place.disabled=false;place.title=''}
-    localStorage.setItem('plug-checkout-total-state',JSON.stringify({subtotal:sub,shipping,vat,total,updated_at:Date.now()}));
+    setPlaceState(place,false,'');
+    const next={subtotal:sub,shipping,vat,total};
+    let prev=null;try{prev=JSON.parse(localStorage.getItem('plug-checkout-total-state')||'null')}catch{}
+    if(!prev||prev.subtotal!==next.subtotal||prev.shipping!==next.shipping||prev.vat!==next.vat||prev.total!==next.total){
+      localStorage.setItem('plug-checkout-total-state',JSON.stringify({...next,updated_at:Date.now()}));
+    }
   }
   const originalFetch=window.fetch.bind(window);
   window.fetch=async function(input,init){
@@ -65,6 +70,11 @@
     }catch{}
     return originalFetch(input,init);
   };
-  function init(){render();new MutationObserver(()=>render()).observe(document.body,{childList:true,subtree:true,characterData:true});window.addEventListener('hashchange',()=>setTimeout(render,0));window.addEventListener('storage',e=>{if(['plug-cart','plug-supplier-shipping-quote'].includes(e.key))render()});}
+  function init(){
+    render();
+    window.addEventListener('hashchange',()=>setTimeout(render,0));
+    window.addEventListener('storage',e=>{if(['plug-cart','plug-supplier-shipping-quote'].includes(e.key))render()});
+    window.addEventListener('tp-shipping-updated',render);
+  }
   if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',init,{once:true});else init();
 })();
