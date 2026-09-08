@@ -47,7 +47,7 @@ async function details(req,res){
 }
 
 function serveScript(res){
-  try{const b=fs.readFileSync(path.join(ROOT,'public','saudi-address-autocomplete.js'));res.writeHead(200,{'content-type':'application/javascript; charset=utf-8','content-length':b.length,'cache-control':'no-store'});res.end(b)}catch{res.writeHead(404);res.end('Not found')}
+  try{const b=fs.readFileSync(path.join(ROOT,'public','saudi-address-live.js'));res.writeHead(200,{'content-type':'application/javascript; charset=utf-8','content-length':b.length,'cache-control':'no-store'});res.end(b)}catch{res.writeHead(404);res.end('Not found')}
 }
 
 function proxy(req,res){
