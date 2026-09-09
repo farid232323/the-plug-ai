@@ -2,11 +2,13 @@ const http=require('http');
 const fs=require('fs');
 const path=require('path');
 const {spawn}=require('child_process');
+const createStorefrontCatalog=require('./storefront-catalog-api');
 
 const PUBLIC_PORT=Number(process.env.PORT||4173);
 const INNER_PORT=Number(process.env.PLACES_INNER_PORT||4187);
 const ROOT=__dirname;
 const KEY=String(process.env.GOOGLE_PLACES_API_KEY||'').trim();
+const storefront=createStorefrontCatalog({rootDir:ROOT});
 
 const child=spawn(process.execPath,['gateway.js'],{cwd:ROOT,env:{...process.env,PORT:String(INNER_PORT)},stdio:'inherit'});
 child.on('exit',code=>{console.error('Inner gateway exited',code);process.exit(code||1)});
@@ -55,12 +57,12 @@ function proxy(req,res){
   const pr=http.request({hostname:'127.0.0.1',port:INNER_PORT,path:req.url,method:req.method,headers},pres=>{
     const type=String(pres.headers['content-type']||'');
     if(req.method==='GET'&&type.includes('text/html')){
-      const chunks=[];pres.on('data',c=>chunks.push(c));pres.on('end',()=>{let s=Buffer.concat(chunks).toString('utf8');const tags=[];if(!s.includes('saudi-address-autocomplete.js'))tags.push('<script src="/saudi-address-autocomplete.js"></script>');if(!s.includes('cart-source-of-truth.js'))tags.push('<script src="/cart-source-of-truth.js"></script>');if(tags.length)s=s.replace(/<\/body>/i,tags.join('')+'</body>');const b=Buffer.from(s);const h={...pres.headers,'content-length':b.length,'cache-control':'no-store'};delete h['content-encoding'];delete h['transfer-encoding'];res.writeHead(pres.statusCode||200,h);res.end(b)});return;
+      const chunks=[];pres.on('data',c=>chunks.push(c));pres.on('end',()=>{let s=Buffer.concat(chunks).toString('utf8');const tags=[];if(!s.includes('saudi-address-autocomplete.js'))tags.push('<script src="/saudi-address-autocomplete.js"></script>');if(!s.includes('cart-source-of-truth.js'))tags.push('<script src="/cart-source-of-truth.js"></script>');if(!s.includes('storefront-functional-fix.js'))tags.push('<script src="/storefront-functional-fix.js"></script>');if(tags.length)s=s.replace(/<\/body>/i,tags.join('')+'</body>');const b=Buffer.from(s);const h={...pres.headers,'content-length':b.length,'cache-control':'no-store'};delete h['content-encoding'];delete h['transfer-encoding'];res.writeHead(pres.statusCode||200,h);res.end(b)});return;
     }
     res.writeHead(pres.statusCode||500,pres.headers);pres.pipe(res);
   });
   pr.on('error',()=>{if(!res.headersSent)res.writeHead(502);res.end('Bad gateway')});req.pipe(pr);
 }
 
-const server=http.createServer((req,res)=>{const u=new URL(req.url,'http://localhost');if(u.pathname==='/api/places/autocomplete'&&req.method==='POST')return autocomplete(req,res);if(u.pathname==='/api/places/details'&&req.method==='POST')return details(req,res);if(u.pathname==='/saudi-address-autocomplete.js'&&req.method==='GET')return servePublicScript(res,'saudi-address-live.js');if(u.pathname==='/cart-source-of-truth.js'&&req.method==='GET')return servePublicScript(res,'cart-source-of-truth.js');proxy(req,res)});
+const server=http.createServer((req,res)=>{const u=new URL(req.url,'http://localhost');if(storefront.handle(req,res,u))return;if(u.pathname==='/api/places/autocomplete'&&req.method==='POST')return autocomplete(req,res);if(u.pathname==='/api/places/details'&&req.method==='POST')return details(req,res);if(u.pathname==='/saudi-address-autocomplete.js'&&req.method==='GET')return servePublicScript(res,'saudi-address-live.js');if(u.pathname==='/cart-source-of-truth.js'&&req.method==='GET')return servePublicScript(res,'cart-source-of-truth.js');if(u.pathname==='/storefront-functional-fix.js'&&req.method==='GET')return servePublicScript(res,'storefront-functional-fix.js');proxy(req,res)});
 server.listen(PUBLIC_PORT,()=>console.log(`Places gateway on :${PUBLIC_PORT}; app on :${INNER_PORT}`));
