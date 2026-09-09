@@ -52,6 +52,24 @@ module.exports=function createShopifyAdapter({headless=true,dataDir='/data'}={})
       return hit?.handle?`${base}/products/${hit.handle}`:'';
     }catch{return ''}
   }
+  async function p3CollectionHtmlLookup(page,base,item){
+    const sku=norm(item.sku||item.mfg_part_id);if(!sku)return '';
+    try{
+      for(let pageNo=1;pageNo<=4;pageNo++){
+        await page.goto(`${base}/collections/all?page=${pageNo}`,{waitUntil:'domcontentloaded',timeout:45000});
+        const hrefs=await page.locator('a[href*="/products/"]').evaluateAll(nodes=>[...new Set(nodes.map(n=>n.getAttribute('href')).filter(Boolean))]);
+        if(!hrefs.length)break;
+        for(const href of hrefs){
+          try{
+            const productUrl=new URL(href,base);productUrl.search='';productUrl.hash='';
+            const r=await page.request.get(productUrl.toString()+'.js',{timeout:12000,headers:{accept:'application/json'}});if(!r.ok())continue;
+            const p=await r.json().catch(()=>null);if((p?.variants||[]).some(v=>norm(v?.sku)===sku))return productUrl.toString();
+          }catch{}
+        }
+      }
+    }catch{}
+    return '';
+  }
   async function htmlSearchLookup(page,base,item){
     const candidates=productCandidates(item);
     for(const term of candidates){
@@ -69,7 +87,7 @@ module.exports=function createShopifyAdapter({headless=true,dataDir='/data'}={})
   }
   async function resolveProduct(page,s,item){
     const base=s.base_url.replace(/\/$/,'');if(item.url){await page.goto(item.url,{waitUntil:'domcontentloaded',timeout:45000});return page.url()}
-    let url=await shopifyJsonLookup(page,base,item);if(!url&&s.slug==='p3-gauges')url=await p3CollectionLookup(page,base,item);if(!url)url=await htmlSearchLookup(page,base,item);
+    let url=await shopifyJsonLookup(page,base,item);if(!url&&s.slug==='p3-gauges')url=await p3CollectionLookup(page,base,item);if(!url&&s.slug==='p3-gauges')url=await p3CollectionHtmlLookup(page,base,item);if(!url)url=await htmlSearchLookup(page,base,item);
     if(!url)throw new Error(`Unable to find ${s.name} product for ${clean(item.sku||item.mfg_part_id||item.title)}`);
     await page.goto(url,{waitUntil:'domcontentloaded',timeout:45000});return page.url();
   }
