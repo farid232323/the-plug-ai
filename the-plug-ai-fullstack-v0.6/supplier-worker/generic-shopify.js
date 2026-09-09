@@ -43,6 +43,15 @@ module.exports=function createShopifyAdapter({headless=true,dataDir='/data'}={})
     }catch{}
     return '';
   }
+  async function p3CollectionLookup(page,base,item){
+    const sku=norm(item.sku||item.mfg_part_id);if(!sku)return '';
+    try{
+      const r=await page.request.get(`${base}/collections/all/products.json?limit=250`,{timeout:20000,headers:{accept:'application/json'}});if(!r.ok())return '';
+      const j=await r.json().catch(()=>null);const ps=j?.products||[];
+      const hit=ps.find(p=>(p.variants||[]).some(v=>norm(v?.sku)===sku));
+      return hit?.handle?`${base}/products/${hit.handle}`:'';
+    }catch{return ''}
+  }
   async function htmlSearchLookup(page,base,item){
     const candidates=productCandidates(item);
     for(const term of candidates){
@@ -60,7 +69,7 @@ module.exports=function createShopifyAdapter({headless=true,dataDir='/data'}={})
   }
   async function resolveProduct(page,s,item){
     const base=s.base_url.replace(/\/$/,'');if(item.url){await page.goto(item.url,{waitUntil:'domcontentloaded',timeout:45000});return page.url()}
-    let url=await shopifyJsonLookup(page,base,item);if(!url)url=await htmlSearchLookup(page,base,item);
+    let url=await shopifyJsonLookup(page,base,item);if(!url&&s.slug==='p3-gauges')url=await p3CollectionLookup(page,base,item);if(!url)url=await htmlSearchLookup(page,base,item);
     if(!url)throw new Error(`Unable to find ${s.name} product for ${clean(item.sku||item.mfg_part_id||item.title)}`);
     await page.goto(url,{waitUntil:'domcontentloaded',timeout:45000});return page.url();
   }
