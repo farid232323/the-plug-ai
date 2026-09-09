@@ -107,7 +107,8 @@ module.exports=function createShopifyAdapter({headless=true,dataDir='/data'}={})
   }
   async function resolveProduct(page,s,item){
     const base=s.base_url.replace(/\/$/,'');if(item.url){await page.goto(item.url,{waitUntil:'domcontentloaded',timeout:45000});return page.url()}
-    let url=await shopifyJsonLookup(page,base,item,s);if(!url&&s.slug==='p3-gauges')url=await p3CollectionLookup(page,base,item,s);if(!url&&s.slug==='p3-gauges')url=await p3CollectionHtmlLookup(page,base,item,s);if(!url)url=await htmlSearchLookup(page,base,item,s);
+    const isP3=s.slug==='p3-gauges'||s.slug==='p3-guages';
+    let url=await shopifyJsonLookup(page,base,item,s);if(!url&&isP3)url=await p3CollectionLookup(page,base,item,s);if(!url&&isP3)url=await p3CollectionHtmlLookup(page,base,item,s);if(!url)url=await htmlSearchLookup(page,base,item,s);
     if(!url)throw new Error(`Unable to find ${s.name} product for ${clean(item.sku||item.mfg_part_id||item.title)}`);
     await page.goto(url,{waitUntil:'domcontentloaded',timeout:45000});return page.url();
   }
