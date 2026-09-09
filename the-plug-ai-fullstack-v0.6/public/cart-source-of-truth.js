@@ -25,6 +25,11 @@
   function renderTotals(items){const subtotal=items.reduce((s,x)=>s+p(x)*q(x),0);const d=$('#drawerSubtotal');if(d)d.textContent=money(subtotal);const s=$('#subtotal');if(s)s.textContent=money(subtotal);const total=$('#total');if(total&&location.hash!=='#checkout')total.textContent=money(subtotal);const checkout=$('#checkout .checkout-summary');if(checkout){const rows=$$('.summary-row',checkout);const sub=rows.find(r=>/^subtotal$/i.test((r.firstElementChild?.textContent||'').trim()));if(sub?.lastElementChild)sub.lastElementChild.textContent=money(subtotal)}}
   function renderAll(){const items=readCart();renderCounts(items);renderDrawer(items);renderCartPage(items);renderCheckout(items);renderTotals(items)}
 
+  // The legacy app keeps its own in-memory cart and used to overwrite localStorage
+  // whenever #cart opened. Replace the legacy global renderCart/removeItem functions
+  // so every route renders from plug-cart, which is the single source of truth.
+  try{window.renderCart=renderAll;window.removeItem=i=>{removeAt(Number(i));renderAll()}}catch{}
+
   async function exactVisibleProduct(){
     const root=$('#product .product-info');if(!root)return null;
     const title=(root.querySelector('h1')?.textContent||'').trim();
