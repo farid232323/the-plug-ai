@@ -19,10 +19,10 @@ module.exports=function createShopifyAdapter({headless=true,dataDir='/data'}={})
   }
   async function shopifyJsonLookup(page,base,item){
     const candidates=productCandidates(item);
-    // First try Shopify predictive search for each useful identifier/title.
+    // First try Shopify predictive search for each useful identifier/title, explicitly including variant SKU fields.
     for(const term of candidates){
       try{
-        const u=`${base}/search/suggest.json?q=${encodeURIComponent(term)}&resources[type]=product&resources[limit]=10`;
+        const u=`${base}/search/suggest.json?q=${encodeURIComponent(term)}&resources[type]=product&resources[limit]=10&resources[options][fields]=variants.sku,title&resources[options][unavailable_products]=show`;
         const r=await page.request.get(u,{timeout:15000,headers:{accept:'application/json'}});if(!r.ok())continue;
         const j=await r.json().catch(()=>null);const ps=j?.resources?.results?.products||[];if(!ps.length)continue;
         let best=ps.map(p=>({p,score:scoreProduct(p,candidates)})).sort((a,b)=>b.score-a.score)[0];
