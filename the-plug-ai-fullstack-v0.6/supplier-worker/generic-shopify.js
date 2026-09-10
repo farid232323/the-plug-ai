@@ -26,8 +26,23 @@ module.exports=function createShopifyAdapter({headless=true,dataDir='/data'}={})
     for(const v of product?.variants||[]){const sku=norm(v?.sku);for(const c of candidates){const n=norm(c);if(sku&&n&&sku===n)score=Math.max(score,200)}}
     return score;
   }
+  // Diagnostic-only, P3 only: shows how many products a JSON lookup returned and, for a small
+  // capped sample of the most SKU-relevant ones, their title/handle/variant SKUs. Never logs
+  // prices, customer data, headers, cookies, tokens, or the request path/query.
+  function logCandidates(s,step,targetSku,products){
+    const list=Array.isArray(products)?products:[];
+    const ranked=list.map(p=>{
+      const skus=(Array.isArray(p?.variants)?p.variants:[]).map(v=>norm(v?.sku));
+      const rank=targetSku&&skus.includes(targetSku)?2:targetSku&&skus.some(sk=>sk&&(sk.includes(targetSku)||targetSku.includes(sk)))?1:0;
+      return{p,rank};
+    }).sort((a,b)=>b.rank-a.rank).slice(0,3).map(x=>x.p);
+    const sample=ranked.map(p=>({title:clean(p?.title).slice(0,80),handle:clean(p?.handle).slice(0,80),variant_skus:(Array.isArray(p?.variants)?p.variants:[]).slice(0,5).map(v=>clean(v?.sku).slice(0,40))}));
+    console.log('[supplier-lookup-candidates]',JSON.stringify({slug:s?.slug||'',step,target_sku:targetSku||'',result_count:list.length,sample}));
+  }
   async function shopifyJsonLookup(page,base,item,s){
     const candidates=productCandidates(item);
+    const targetSku=norm(item.sku||item.mfg_part_id);
+    const isP3=s?.slug==='p3-gauges'||s?.slug==='p3-guages';
     // First try Shopify predictive search for each useful identifier/title, explicitly including variant SKU fields.
     for(const term of candidates){
       try{
@@ -35,7 +50,9 @@ module.exports=function createShopifyAdapter({headless=true,dataDir='/data'}={})
         const r=await page.request.get(u,{timeout:15000,headers:{accept:'application/json'}});
         logLookup(s,'predictive_search',base,r);
         if(!r.ok())continue;
-        const j=await r.json().catch(()=>null);const ps=j?.resources?.results?.products||[];if(!ps.length)continue;
+        const j=await r.json().catch(()=>null);const ps=j?.resources?.results?.products||[];
+        if(isP3)logCandidates(s,'predictive_search',targetSku,ps);
+        if(!ps.length)continue;
         let best=ps.map(p=>({p,score:scoreProduct(p,candidates)})).sort((a,b)=>b.score-a.score)[0];
         if(!best?.p)best={p:ps[0]};
         const url=best.p.url||best.p.handle&&`/products/${best.p.handle}`;if(url)return new URL(url,base).toString();
@@ -48,7 +65,9 @@ module.exports=function createShopifyAdapter({headless=true,dataDir='/data'}={})
         const r=await page.request.get(`${base}/products.json?limit=250&page=${pageNo}`,{timeout:20000,headers:{accept:'application/json'}});
         logLookup(s,'products_json',base,r);
         if(!r.ok())break;
-        const j=await r.json().catch(()=>null),ps=j?.products||[];if(!ps.length)break;
+        const j=await r.json().catch(()=>null),ps=j?.products||[];
+        if(isP3)logCandidates(s,'products_json',targetSku,ps);
+        if(!ps.length)break;
         for(const p of ps){const sc=scoreProduct(p,candidates);if(!best||sc>best.score)best={p,score:sc};if(sc>=200)break}
         if(best?.score>=200||ps.length<250)break;pageNo++;
       }
@@ -63,6 +82,7 @@ module.exports=function createShopifyAdapter({headless=true,dataDir='/data'}={})
       logLookup(s,'collection_products_json',base,r);
       if(!r.ok())return '';
       const j=await r.json().catch(()=>null);const ps=j?.products||[];
+      logCandidates(s,'collection_products_json',sku,ps);
       const hit=ps.find(p=>(p.variants||[]).some(v=>norm(v?.sku)===sku));
       return hit?.handle?`${base}/products/${hit.handle}`:'';
     }catch(err){logLookup(s,'collection_products_json',base,null,err);return ''}
