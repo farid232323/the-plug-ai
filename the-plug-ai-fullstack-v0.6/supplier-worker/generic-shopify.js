@@ -39,6 +39,31 @@ module.exports=function createShopifyAdapter({headless=true,dataDir='/data'}={})
     const sample=ranked.map(p=>({title:clean(p?.title).slice(0,80),handle:clean(p?.handle).slice(0,80),variant_skus:(Array.isArray(p?.variants)?p.variants:[]).slice(0,5).map(v=>clean(v?.sku).slice(0,40))}));
     console.log('[supplier-lookup-candidates]',JSON.stringify({slug:s?.slug||'',step,target_sku:targetSku||'',result_count:list.length,sample}));
   }
+  // TEMPORARY diagnostic, P3 only: reveals response *shape* (keys/paths/lengths) when a JSON
+  // lookup returns HTTP 200 but is parsed as zero products. Never logs field values, the raw
+  // body, headers, cookies, tokens, credentials, prices, or addresses. Remove once the P3
+  // schema mismatch is understood.
+  function keyList(obj){return obj&&typeof obj==='object'&&!Array.isArray(obj)?Object.keys(obj).slice(0,20):null}
+  function logSchema(s,step,rawText){
+    let parsed=null,parseError=null;
+    try{parsed=JSON.parse(rawText)}catch(e){parseError=String(e?.message||e).slice(0,120)}
+    const resourcesProducts=parsed?.resources?.results?.products;
+    const rootProducts=parsed?.products;
+    const firstProduct=(Array.isArray(resourcesProducts)&&resourcesProducts[0])||(Array.isArray(rootProducts)&&rootProducts[0])||null;
+    console.log('[supplier-lookup-schema]',JSON.stringify({
+      slug:s?.slug||'',
+      step,
+      parse_error:parseError,
+      top_level_keys:keyList(parsed),
+      resources_keys:keyList(parsed?.resources),
+      resources_results_keys:keyList(parsed?.resources?.results),
+      has_resources_results_products:Array.isArray(resourcesProducts),
+      resources_results_products_length:Array.isArray(resourcesProducts)?resourcesProducts.length:null,
+      has_root_products:Array.isArray(rootProducts),
+      root_products_length:Array.isArray(rootProducts)?rootProducts.length:null,
+      first_product_keys:firstProduct?keyList(firstProduct):null
+    }));
+  }
   async function shopifyJsonLookup(page,base,item,s){
     const candidates=productCandidates(item);
     const targetSku=norm(item.sku||item.mfg_part_id);
@@ -50,6 +75,7 @@ module.exports=function createShopifyAdapter({headless=true,dataDir='/data'}={})
         const r=await page.request.get(u,{timeout:15000,headers:{accept:'application/json'}});
         logLookup(s,'predictive_search',base,r);
         if(!r.ok())continue;
+        if(isP3){const text=await r.text().catch(()=>'');logSchema(s,'predictive_search',text)}
         const j=await r.json().catch(()=>null);const ps=j?.resources?.results?.products||[];
         if(isP3)logCandidates(s,'predictive_search',targetSku,ps);
         if(!ps.length)continue;
@@ -65,6 +91,7 @@ module.exports=function createShopifyAdapter({headless=true,dataDir='/data'}={})
         const r=await page.request.get(`${base}/products.json?limit=250&page=${pageNo}`,{timeout:20000,headers:{accept:'application/json'}});
         logLookup(s,'products_json',base,r);
         if(!r.ok())break;
+        if(isP3){const text=await r.text().catch(()=>'');logSchema(s,'products_json',text)}
         const j=await r.json().catch(()=>null),ps=j?.products||[];
         if(isP3)logCandidates(s,'products_json',targetSku,ps);
         if(!ps.length)break;
@@ -81,6 +108,7 @@ module.exports=function createShopifyAdapter({headless=true,dataDir='/data'}={})
       const r=await page.request.get(`${base}/collections/all/products.json?limit=250`,{timeout:20000,headers:{accept:'application/json'}});
       logLookup(s,'collection_products_json',base,r);
       if(!r.ok())return '';
+      const text=await r.text().catch(()=>'');logSchema(s,'collection_products_json',text);
       const j=await r.json().catch(()=>null);const ps=j?.products||[];
       logCandidates(s,'collection_products_json',sku,ps);
       const hit=ps.find(p=>(p.variants||[]).some(v=>norm(v?.sku)===sku));
