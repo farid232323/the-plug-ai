@@ -46,15 +46,22 @@ function longestCommonPrefix(strs){if(!strs.length)return '';let p=strs[0];for(c
 function deriveLabels(members){
  const segLists=members.map(m=>norm(m.description).split('/').map(s=>s.trim()));
  const maxLen=Math.max(...segLists.map(s=>s.length));
+ let descLabels=null;
  if(maxLen>1&&segLists.every(s=>s.length===maxLen)){
   const diffIdx=[];for(let i=0;i<maxLen;i++){if(new Set(segLists.map(s=>s[i])).size>1)diffIdx.push(i)}
-  if(diffIdx.length){const labels=segLists.map(s=>diffIdx.map(i=>s[i]).join(' / '));if(labels.every(Boolean)&&new Set(labels).size===labels.length)return labels}
+  if(diffIdx.length){const labels=segLists.map(s=>diffIdx.map(i=>s[i]).join(' / '));if(labels.every(Boolean))descLabels=labels}
  }
  const mfgs=members.map(m=>norm(m.mfg_part_id));
- if(mfgs.every(Boolean)){const prefix=longestCommonPrefix(mfgs);const rem=mfgs.map(s=>s.slice(prefix.length).replace(/^[.\-_]+/,''));if(rem.every(Boolean)&&new Set(rem).size===rem.length)return rem}
+ let mfgLabels=null;
+ if(mfgs.every(Boolean)){const prefix=longestCommonPrefix(mfgs);const rem=mfgs.map(s=>s.slice(prefix.length).replace(/^[.\-_]+/,''));if(rem.every(Boolean))mfgLabels=rem}
+ if(descLabels){
+  if(new Set(descLabels).size===descLabels.length)return descLabels;
+  if(mfgLabels)return descLabels.map((l,i)=>`${l} (${mfgLabels[i]})`);
+ }
+ if(mfgLabels&&new Set(mfgLabels).size===mfgLabels.length)return mfgLabels;
  return members.map((_,i)=>'Option '+(i+1));
 }
-function recomputeProductOptions(){
+function recomputeProductOptions(force){
  const all=db.prepare('SELECT id,brand_name,title,description,mfg_part_id,price_sar,option_label FROM products').all();
  const groups=new Map();
  for(const p of all){const k=groupSignatureKey(p);if(!groups.has(k))groups.set(k,[]);groups.get(k).push(p)}
@@ -71,7 +78,7 @@ function recomputeProductOptions(){
    const primaryId=byId[0].id;
    const byPrice=[...members].sort((a,b)=>(a.price_sar??0)-(b.price_sar??0));
    const labels=deriveLabels(byPrice);
-   byPrice.forEach((m,i)=>{if(!m.option_label)db.prepare('UPDATE products SET option_label=? WHERE id=?').run(labels[i],m.id)});
+   byPrice.forEach((m,i)=>{if(force||!m.option_label)db.prepare('UPDATE products SET option_label=? WHERE id=?').run(labels[i],m.id)});
    for(const m of members)db.prepare('UPDATE products SET option_group_id=?,is_group_primary=? WHERE id=?').run(primaryId,m.id===primaryId?1:0,m.id);
    groupsWithOptions++;
    const descs=members.map(m=>m.description||'');
@@ -158,7 +165,7 @@ async function api(req,res,u){
  if(u.pathname==='/api/admin/imports'&&method==='GET')return json(res,db.prepare('SELECT * FROM imports ORDER BY id DESC LIMIT 50').all());
  if(u.pathname==='/api/admin/import/preview'&&method==='POST'){const mp=parseMultipart(await body(req),req.headers['content-type']||'');if(!mp)return json(res,{error:'Upload an .xlsx file'},400);const fn=Date.now()+'-'+mp.name.replace(/[^\w. -]/g,'_');const fp=path.join(UPLOADS,fn);fs.writeFileSync(fp,mp.data);const rows=parseXlsx(fp);const keys=new Set(),issues=[],newKeys=new Set(),existingKeys=new Set(),priceChanges=[];let valid=0;for(const r of rows){if(!norm(r['Product Name'])||!norm(r['Brand']||r.__sheet)){issues.push({sheet:r.__sheet,row:r.__row,message:'Missing product name or brand'});continue}valid++;const g=groupKey(r);keys.add(g);const cur=db.prepare('SELECT id,price_sar,title FROM products WHERE group_key=?').get(g);if(cur){existingKeys.add(g);const np=money(r['The Pluge Price SAR']||r['The Plug Price SAR']);if(np!=null&&cur.price_sar!=null&&Math.abs(np-cur.price_sar)>.009)priceChanges.push({product:cur.title,old:cur.price_sar,new:np})}else newKeys.add(g)}return json(res,{token:fn,filename:mp.name,rows:rows.length,valid_rows:valid,estimated_unique_products:keys.size,new_products:newKeys.size,existing_products:existingKeys.size,price_changes:priceChanges.slice(0,100),sheets:[...new Set(rows.map(r=>r.__sheet))],issues:issues.slice(0,100),sample:rows.slice(0,5)})}
  if(u.pathname==='/api/admin/import/commit'&&method==='POST'){const d=await readJson(req);const fp=path.join(UPLOADS,path.basename(d.token||''));if(!fs.existsSync(fp))return json(res,{error:'Upload token expired'},400);const rows=parseXlsx(fp);const st=importRows(rows,d.mode||'update');const optStats=recomputeProductOptions();db.prepare('INSERT INTO imports(filename,mode,rows_total,products_created,products_updated,fitments_created,issues,status) VALUES(?,?,?,?,?,?,?,?)').run(path.basename(fp),d.mode||'update',st.rows_total,st.products_created,st.products_updated,st.fitments_created,st.issues,'completed');return json(res,{...st,options:optStats})}
- if(u.pathname==='/api/admin/products/recompute-options'&&method==='POST'){const stats=recomputeProductOptions();audit('product',null,'recompute-options',JSON.stringify(stats));return json(res,stats)}
+ if(u.pathname==='/api/admin/products/recompute-options'&&method==='POST'){const d=await readJson(req);const stats=recomputeProductOptions(!!d.force);audit('product',null,'recompute-options',JSON.stringify({...stats,force:!!d.force}));return json(res,stats)}
  if(u.pathname==='/api/admin/option-flags'&&method==='GET')return json(res,db.prepare(`SELECT f.*,p.title,p.brand_name,(SELECT count(*) FROM products x WHERE x.option_group_id=f.option_group_id) member_count FROM option_group_flags f JOIN products p ON p.id=f.option_group_id WHERE f.dismissed_at IS NULL ORDER BY f.id DESC`).all());
  if(u.pathname.match(/^\/api\/admin\/option-flags\/\d+\/dismiss$/)&&method==='POST'){db.prepare('UPDATE option_group_flags SET dismissed_at=CURRENT_TIMESTAMP WHERE id=?').run(+u.pathname.split('/')[4]);return json(res,{ok:true})}
  if(u.pathname==='/api/admin/audit'&&method==='GET')return json(res,db.prepare('SELECT * FROM audit_log ORDER BY id DESC LIMIT 100').all());
