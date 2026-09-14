@@ -23,10 +23,11 @@ CREATE TABLE IF NOT EXISTS settings(key TEXT PRIMARY KEY,value TEXT);
 CREATE TABLE IF NOT EXISTS inventory_logs(id INTEGER PRIMARY KEY,product_id INTEGER,delta INTEGER,reason TEXT,note TEXT,created_at TEXT DEFAULT CURRENT_TIMESTAMP);
 CREATE TABLE IF NOT EXISTS imports(id INTEGER PRIMARY KEY,filename TEXT,mode TEXT,rows_total INTEGER,products_created INTEGER,products_updated INTEGER,fitments_created INTEGER,issues INTEGER,status TEXT,created_at TEXT DEFAULT CURRENT_TIMESTAMP);
 CREATE TABLE IF NOT EXISTS audit_log(id INTEGER PRIMARY KEY,entity_type TEXT,entity_id INTEGER,action TEXT,summary TEXT,created_at TEXT DEFAULT CURRENT_TIMESTAMP);
+CREATE TABLE IF NOT EXISTS option_group_flags(id INTEGER PRIMARY KEY,option_group_id INTEGER,reason TEXT,detail TEXT,created_at TEXT DEFAULT CURRENT_TIMESTAMP,dismissed_at TEXT,FOREIGN KEY(option_group_id) REFERENCES products(id) ON DELETE CASCADE);
 `);
 function ensureColumn(table,col,def){try{db.exec(`ALTER TABLE ${table} ADD COLUMN ${col} ${def}`)}catch(e){if(!String(e.message).includes('duplicate column')) throw e}}
 ensureColumn('brands','logo_url','TEXT'); ensureColumn('brands','website','TEXT'); ensureColumn('brands','notes','TEXT');
-for(const [c,d] of [['short_description','TEXT'],['cost_sar','REAL'],['low_stock_threshold','INTEGER DEFAULT 3'],['lead_time','TEXT'],['weight_kg','REAL'],['seo_title','TEXT'],['seo_description','TEXT']]) ensureColumn('products',c,d);
+for(const [c,d] of [['short_description','TEXT'],['cost_sar','REAL'],['low_stock_threshold','INTEGER DEFAULT 3'],['lead_time','TEXT'],['weight_kg','REAL'],['seo_title','TEXT'],['seo_description','TEXT'],['option_group_id','INTEGER'],['option_label','TEXT'],['is_group_primary','INTEGER DEFAULT 0']]) ensureColumn('products',c,d);
 ensureColumn('product_images','alt_text','TEXT'); ensureColumn('fitments','trim','TEXT'); ensureColumn('fitments','notes','TEXT');
 function norm(s){return String(s??'').trim().replace(/\s+/g,' ')}
 function slug(s){return norm(s).toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/(^-|-$)/g,'')}
@@ -36,6 +37,63 @@ function canonicalBrand(s){let x=norm(s); if(!x)return ''; const l=x.toLowerCase
 function groupKey(r){const brand=canonicalBrand(r['Brand']||r.__sheet); const mfg=norm(r['MFG Part ID']); if(mfg&&mfg!=='_'&&mfg!=='-')return slug(brand)+'|mfg|'+mfg.toLowerCase(); const title=norm(r['Product Name']); const price=money(r['The Pluge Price SAR']||r['The Plug Price SAR']); const img=norm(r['Image 1 URL']); return slug(brand)+'|fallback|'+slug(title)+'|'+(price??'')+'|'+crypto.createHash('sha1').update(img).digest('hex').slice(0,8)}
 function audit(type,id,action,summary){db.prepare('INSERT INTO audit_log(entity_type,entity_id,action,summary) VALUES(?,?,?,?)').run(type,id,action,summary||'')}
 function getOrBrand(name){name=canonicalBrand(name)||'Unbranded'; const found=db.prepare('SELECT id FROM brands WHERE name=?').get(name);if(found)return found.id;return db.prepare('INSERT INTO brands(name,slug) VALUES(?,?)').run(name,slug(name)).lastInsertRowid}
+const OPTION_JACCARD_MIN=0.35;
+const OPTION_PRICE_RATIO_MAX=3;
+function fitmentSignature(productId){const rows=db.prepare(`SELECT DISTINCT lower(trim(coalesce(car_brand,'')))||'|'||lower(trim(coalesce(model,'')))||'|'||lower(trim(coalesce(chassis,''))) k FROM fitments WHERE product_id=?`).all(productId);return rows.map(r=>r.k).sort().join(',')}
+function groupSignatureKey(p){return norm(p.brand_name).toLowerCase()+'||'+norm(p.title).toLowerCase()+'||'+fitmentSignature(p.id)}
+function jaccard(a,b){const A=new Set(String(a||'').toLowerCase().match(/[a-z0-9]+/g)||[]);const B=new Set(String(b||'').toLowerCase().match(/[a-z0-9]+/g)||[]);if(!A.size||!B.size)return 0;let inter=0;for(const w of A)if(B.has(w))inter++;return inter/(A.size+B.size-inter)}
+function longestCommonPrefix(strs){if(!strs.length)return '';let p=strs[0];for(const s of strs.slice(1)){let i=0;while(i<p.length&&i<s.length&&p[i]===s[i])i++;p=p.slice(0,i)}return p}
+function deriveLabels(members){
+ const segLists=members.map(m=>norm(m.description).split('/').map(s=>s.trim()));
+ const maxLen=Math.max(...segLists.map(s=>s.length));
+ if(maxLen>1&&segLists.every(s=>s.length===maxLen)){
+  const diffIdx=[];for(let i=0;i<maxLen;i++){if(new Set(segLists.map(s=>s[i])).size>1)diffIdx.push(i)}
+  if(diffIdx.length){const labels=segLists.map(s=>diffIdx.map(i=>s[i]).join(' / '));if(labels.every(Boolean)&&new Set(labels).size===labels.length)return labels}
+ }
+ const mfgs=members.map(m=>norm(m.mfg_part_id));
+ if(mfgs.every(Boolean)){const prefix=longestCommonPrefix(mfgs);const rem=mfgs.map(s=>s.slice(prefix.length).replace(/^[.\-_]+/,''));if(rem.every(Boolean)&&new Set(rem).size===rem.length)return rem}
+ return members.map((_,i)=>'Option '+(i+1));
+}
+function recomputeProductOptions(){
+ const all=db.prepare('SELECT id,brand_name,title,description,mfg_part_id,price_sar,option_label FROM products').all();
+ const groups=new Map();
+ for(const p of all){const k=groupSignatureKey(p);if(!groups.has(k))groups.set(k,[]);groups.get(k).push(p)}
+ let groupsWithOptions=0,flagsInserted=0;
+ db.exec('BEGIN');
+ try{
+  for(const members of groups.values()){
+   if(members.length<2){
+    const m=members[0];
+    if(m.option_group_id!=null)db.prepare('UPDATE products SET option_group_id=NULL,option_label=NULL,is_group_primary=0 WHERE id=?').run(m.id);
+    continue;
+   }
+   const byId=[...members].sort((a,b)=>a.id-b.id);
+   const primaryId=byId[0].id;
+   const byPrice=[...members].sort((a,b)=>(a.price_sar??0)-(b.price_sar??0));
+   const labels=deriveLabels(byPrice);
+   byPrice.forEach((m,i)=>{if(!m.option_label)db.prepare('UPDATE products SET option_label=? WHERE id=?').run(labels[i],m.id)});
+   for(const m of members)db.prepare('UPDATE products SET option_group_id=?,is_group_primary=? WHERE id=?').run(primaryId,m.id===primaryId?1:0,m.id);
+   groupsWithOptions++;
+   const descs=members.map(m=>m.description||'');
+   let minSim=1;for(let i=0;i<descs.length;i++)for(let j=i+1;j<descs.length;j++)minSim=Math.min(minSim,jaccard(descs[i],descs[j]));
+   const prices=members.map(m=>m.price_sar).filter(v=>v!=null&&v>0);
+   const priceRatio=prices.length?Math.max(...prices)/Math.min(...prices):1;
+   const reasons=[];
+   if(minSim<OPTION_JACCARD_MIN)reasons.push(['low_description_similarity',`min pairwise similarity ${minSim.toFixed(2)}`]);
+   if(priceRatio>OPTION_PRICE_RATIO_MAX)reasons.push(['high_price_ratio',`max/min price ratio ${priceRatio.toFixed(2)}`]);
+   const activeReasons=new Set(reasons.map(r=>r[0]));
+   for(const f of db.prepare('SELECT id,reason FROM option_group_flags WHERE option_group_id=? AND dismissed_at IS NULL').all(primaryId))
+    if(!activeReasons.has(f.reason))db.prepare('UPDATE option_group_flags SET dismissed_at=CURRENT_TIMESTAMP WHERE id=?').run(f.id);
+   for(const [reason,detail] of reasons){
+    if(!db.prepare('SELECT id FROM option_group_flags WHERE option_group_id=? AND reason=? AND dismissed_at IS NULL').get(primaryId,reason)){
+     db.prepare('INSERT INTO option_group_flags(option_group_id,reason,detail) VALUES(?,?,?)').run(primaryId,reason,detail);flagsInserted++;
+    }
+   }
+  }
+  db.exec('COMMIT');
+ }catch(e){db.exec('ROLLBACK');throw e}
+ return {total_products:all.length,groups_with_options:groupsWithOptions,flags_inserted:flagsInserted};
+}
 function importRows(rows,mode='update'){
  let stats={rows_total:rows.length,products_created:0,products_updated:0,fitments_created:0,issues:0}; const seenImg=new Set(), updatedProducts=new Set();
  db.exec('BEGIN'); try{
@@ -69,7 +127,7 @@ async function readJson(req){try{return JSON.parse((await body(req)).toString()|
 async function api(req,res,u){
  const method=req.method;
  if(u.pathname==='/api/products'&&method==='GET'){const q=norm(u.searchParams.get('q'));const brand=norm(u.searchParams.get('brand'));const category=norm(u.searchParams.get('category'));const limit=Math.min(200,Number(u.searchParams.get('limit')||24));let where=["p.status='active'"],args=[];if(q){where.push('(p.title LIKE ? OR p.mfg_part_id LIKE ? OR p.the_plug_id LIKE ?)');args.push('%'+q+'%','%'+q+'%','%'+q+'%')}if(brand){where.push('p.brand_name=?');args.push(brand)}if(category){where.push('p.category=?');args.push(category)}args.push(limit);return json(res,db.prepare(`SELECT p.*,(SELECT url FROM product_images i WHERE i.product_id=p.id ORDER BY sort_order LIMIT 1) image,(SELECT count(*) FROM fitments f WHERE f.product_id=p.id) fitment_count FROM products p WHERE ${where.join(' AND ')} ORDER BY p.updated_at DESC LIMIT ?`).all(...args))}
- if(u.pathname.match(/^\/api\/products\/\d+$/)&&method==='GET'){const id=+u.pathname.split('/').pop();const p=db.prepare('SELECT * FROM products WHERE id=?').get(id);if(!p)return json(res,{error:'Not found'},404);p.images=db.prepare('SELECT * FROM product_images WHERE product_id=? ORDER BY sort_order,id').all(id);p.fitments=db.prepare('SELECT * FROM fitments WHERE product_id=? ORDER BY car_brand,model,year_from').all(id);p.aliases=db.prepare('SELECT * FROM product_aliases WHERE product_id=? ORDER BY id').all(id);return json(res,p)}
+ if(u.pathname.match(/^\/api\/products\/\d+$/)&&method==='GET'){const id=+u.pathname.split('/').pop();const p=db.prepare('SELECT * FROM products WHERE id=?').get(id);if(!p)return json(res,{error:'Not found'},404);p.images=db.prepare('SELECT * FROM product_images WHERE product_id=? ORDER BY sort_order,id').all(id);p.fitments=db.prepare('SELECT * FROM fitments WHERE product_id=? ORDER BY car_brand,model,year_from').all(id);p.aliases=db.prepare('SELECT * FROM product_aliases WHERE product_id=? ORDER BY id').all(id);p.options=p.option_group_id!=null?db.prepare('SELECT id,option_label,price_sar,msrp_sar,mfg_part_id,the_plug_id,stock,is_group_primary FROM products WHERE option_group_id=? ORDER BY price_sar ASC,id ASC').all(p.option_group_id):[];return json(res,p)}
  if(u.pathname==='/api/brands'&&method==='GET')return json(res,db.prepare('SELECT b.*,count(p.id) product_count FROM brands b LEFT JOIN products p ON p.brand_id=b.id GROUP BY b.id ORDER BY b.name').all());
  if(u.pathname==='/api/categories'&&method==='GET')return json(res,db.prepare('SELECT c.*,(SELECT count(*) FROM products p WHERE p.category=c.name) product_count FROM categories c ORDER BY sort_order,name').all());
  if(u.pathname==='/api/fitment/options'&&method==='GET'){const makes=db.prepare("SELECT DISTINCT car_brand v FROM fitments WHERE car_brand<>'' ORDER BY car_brand").all().map(x=>x.v);return json(res,{makes})}
@@ -80,7 +138,7 @@ async function api(req,res,u){
  if(u.pathname==='/api/admin/products'&&method==='GET'){const q=norm(u.searchParams.get('q'));const brand=norm(u.searchParams.get('brand'));const limit=Math.min(500,Number(u.searchParams.get('limit')||100));let where=['1=1'],args=[];if(q){where.push('(p.title LIKE ? OR p.mfg_part_id LIKE ? OR p.the_plug_id LIKE ?)');args.push('%'+q+'%','%'+q+'%','%'+q+'%')}if(brand){where.push('p.brand_name=?');args.push(brand)}args.push(limit);return json(res,db.prepare(`SELECT p.*,(SELECT url FROM product_images i WHERE i.product_id=p.id ORDER BY sort_order LIMIT 1) image,(SELECT count(*) FROM fitments f WHERE f.product_id=p.id) fitment_count FROM products p WHERE ${where.join(' AND ')} ORDER BY p.updated_at DESC LIMIT ?`).all(...args))}
  if(u.pathname==='/api/admin/products'&&method==='POST'){const d=await readJson(req);const bid=getOrBrand(d.brand_name||'Unbranded');const g='manual|'+crypto.randomUUID();const r=db.prepare('INSERT INTO products(brand_id,brand_name,mfg_part_id,the_plug_id,title,short_description,description,msrp_usd,price_usd,msrp_sar,price_sar,cost_sar,category,status,stock,low_stock_threshold,lead_time,seo_title,seo_description,group_key) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)').run(bid,d.brand_name||'Unbranded',d.mfg_part_id||'',d.the_plug_id||'',d.title||'Untitled product',d.short_description||'',d.description||'',d.msrp_usd||0,d.price_usd||0,d.msrp_sar||0,d.price_sar||0,d.cost_sar||0,d.category||'Other',d.status||'draft',d.stock||0,d.low_stock_threshold||3,d.lead_time||'',d.seo_title||'',d.seo_description||'',g);audit('product',r.lastInsertRowid,'create',d.title);return json(res,{id:r.lastInsertRowid},201)}
  if(u.pathname.match(/^\/api\/admin\/products\/\d+$/)&&method==='GET'){const id=+u.pathname.split('/').pop();const p=db.prepare('SELECT * FROM products WHERE id=?').get(id);if(!p)return json(res,{error:'Not found'},404);p.images=db.prepare('SELECT * FROM product_images WHERE product_id=? ORDER BY sort_order,id').all(id);p.fitments=db.prepare('SELECT * FROM fitments WHERE product_id=? ORDER BY id').all(id);p.aliases=db.prepare('SELECT * FROM product_aliases WHERE product_id=? ORDER BY id').all(id);return json(res,p)}
- if(u.pathname.match(/^\/api\/admin\/products\/\d+$/)&&method==='PUT'){const id=+u.pathname.split('/').pop(),d=await readJson(req);const cur=db.prepare('SELECT * FROM products WHERE id=?').get(id);if(!cur)return json(res,{error:'Not found'},404);const brand=d.brand_name??cur.brand_name,bid=getOrBrand(brand);db.prepare(`UPDATE products SET brand_id=?,brand_name=?,mfg_part_id=?,the_plug_id=?,title=?,short_description=?,description=?,msrp_usd=?,price_usd=?,msrp_sar=?,price_sar=?,cost_sar=?,category=?,status=?,stock=?,low_stock_threshold=?,lead_time=?,seo_title=?,seo_description=?,updated_at=CURRENT_TIMESTAMP WHERE id=?`).run(bid,brand,d.mfg_part_id??cur.mfg_part_id,d.the_plug_id??cur.the_plug_id,d.title??cur.title,d.short_description??cur.short_description,d.description??cur.description,d.msrp_usd??cur.msrp_usd,d.price_usd??cur.price_usd,d.msrp_sar??cur.msrp_sar,d.price_sar??cur.price_sar,d.cost_sar??cur.cost_sar,d.category??cur.category,d.status??cur.status,d.stock??cur.stock,d.low_stock_threshold??cur.low_stock_threshold,d.lead_time??cur.lead_time,d.seo_title??cur.seo_title,d.seo_description??cur.seo_description,id);audit('product',id,'update',d.title??cur.title);return json(res,{ok:true})}
+ if(u.pathname.match(/^\/api\/admin\/products\/\d+$/)&&method==='PUT'){const id=+u.pathname.split('/').pop(),d=await readJson(req);const cur=db.prepare('SELECT * FROM products WHERE id=?').get(id);if(!cur)return json(res,{error:'Not found'},404);const brand=d.brand_name??cur.brand_name,bid=getOrBrand(brand);db.prepare(`UPDATE products SET brand_id=?,brand_name=?,mfg_part_id=?,the_plug_id=?,title=?,short_description=?,description=?,msrp_usd=?,price_usd=?,msrp_sar=?,price_sar=?,cost_sar=?,category=?,status=?,stock=?,low_stock_threshold=?,lead_time=?,seo_title=?,seo_description=?,option_label=?,updated_at=CURRENT_TIMESTAMP WHERE id=?`).run(bid,brand,d.mfg_part_id??cur.mfg_part_id,d.the_plug_id??cur.the_plug_id,d.title??cur.title,d.short_description??cur.short_description,d.description??cur.description,d.msrp_usd??cur.msrp_usd,d.price_usd??cur.price_usd,d.msrp_sar??cur.msrp_sar,d.price_sar??cur.price_sar,d.cost_sar??cur.cost_sar,d.category??cur.category,d.status??cur.status,d.stock??cur.stock,d.low_stock_threshold??cur.low_stock_threshold,d.lead_time??cur.lead_time,d.seo_title??cur.seo_title,d.seo_description??cur.seo_description,d.option_label??cur.option_label,id);audit('product',id,'update',d.title??cur.title);return json(res,{ok:true})}
  if(u.pathname.match(/^\/api\/admin\/products\/\d+$/)&&method==='DELETE'){const id=+u.pathname.split('/').pop();db.prepare('DELETE FROM products WHERE id=?').run(id);audit('product',id,'delete','');return json(res,{ok:true})}
  if(u.pathname.match(/^\/api\/admin\/products\/\d+\/images$/)&&method==='POST'){const id=+u.pathname.split('/')[4],d=await readJson(req);const order=db.prepare('SELECT coalesce(max(sort_order),0)+1 n FROM product_images WHERE product_id=?').get(id).n;const r=db.prepare('INSERT INTO product_images(product_id,url,alt_text,sort_order) VALUES(?,?,?,?)').run(id,d.url||'',d.alt_text||'',d.sort_order||order);return json(res,{id:r.lastInsertRowid},201)}
  if(u.pathname.match(/^\/api\/admin\/images\/\d+$/)&&method==='DELETE'){db.prepare('DELETE FROM product_images WHERE id=?').run(+u.pathname.split('/').pop());return json(res,{ok:true})}
@@ -99,7 +157,10 @@ async function api(req,res,u){
  if(u.pathname==='/api/admin/settings'&&method==='PUT'){const d=await readJson(req);for(const [k,v] of Object.entries(d))db.prepare('INSERT INTO settings(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value').run(k,String(v));return json(res,{ok:true})}
  if(u.pathname==='/api/admin/imports'&&method==='GET')return json(res,db.prepare('SELECT * FROM imports ORDER BY id DESC LIMIT 50').all());
  if(u.pathname==='/api/admin/import/preview'&&method==='POST'){const mp=parseMultipart(await body(req),req.headers['content-type']||'');if(!mp)return json(res,{error:'Upload an .xlsx file'},400);const fn=Date.now()+'-'+mp.name.replace(/[^\w. -]/g,'_');const fp=path.join(UPLOADS,fn);fs.writeFileSync(fp,mp.data);const rows=parseXlsx(fp);const keys=new Set(),issues=[],newKeys=new Set(),existingKeys=new Set(),priceChanges=[];let valid=0;for(const r of rows){if(!norm(r['Product Name'])||!norm(r['Brand']||r.__sheet)){issues.push({sheet:r.__sheet,row:r.__row,message:'Missing product name or brand'});continue}valid++;const g=groupKey(r);keys.add(g);const cur=db.prepare('SELECT id,price_sar,title FROM products WHERE group_key=?').get(g);if(cur){existingKeys.add(g);const np=money(r['The Pluge Price SAR']||r['The Plug Price SAR']);if(np!=null&&cur.price_sar!=null&&Math.abs(np-cur.price_sar)>.009)priceChanges.push({product:cur.title,old:cur.price_sar,new:np})}else newKeys.add(g)}return json(res,{token:fn,filename:mp.name,rows:rows.length,valid_rows:valid,estimated_unique_products:keys.size,new_products:newKeys.size,existing_products:existingKeys.size,price_changes:priceChanges.slice(0,100),sheets:[...new Set(rows.map(r=>r.__sheet))],issues:issues.slice(0,100),sample:rows.slice(0,5)})}
- if(u.pathname==='/api/admin/import/commit'&&method==='POST'){const d=await readJson(req);const fp=path.join(UPLOADS,path.basename(d.token||''));if(!fs.existsSync(fp))return json(res,{error:'Upload token expired'},400);const rows=parseXlsx(fp);const st=importRows(rows,d.mode||'update');db.prepare('INSERT INTO imports(filename,mode,rows_total,products_created,products_updated,fitments_created,issues,status) VALUES(?,?,?,?,?,?,?,?)').run(path.basename(fp),d.mode||'update',st.rows_total,st.products_created,st.products_updated,st.fitments_created,st.issues,'completed');return json(res,st)}
+ if(u.pathname==='/api/admin/import/commit'&&method==='POST'){const d=await readJson(req);const fp=path.join(UPLOADS,path.basename(d.token||''));if(!fs.existsSync(fp))return json(res,{error:'Upload token expired'},400);const rows=parseXlsx(fp);const st=importRows(rows,d.mode||'update');const optStats=recomputeProductOptions();db.prepare('INSERT INTO imports(filename,mode,rows_total,products_created,products_updated,fitments_created,issues,status) VALUES(?,?,?,?,?,?,?,?)').run(path.basename(fp),d.mode||'update',st.rows_total,st.products_created,st.products_updated,st.fitments_created,st.issues,'completed');return json(res,{...st,options:optStats})}
+ if(u.pathname==='/api/admin/products/recompute-options'&&method==='POST'){const stats=recomputeProductOptions();audit('product',null,'recompute-options',JSON.stringify(stats));return json(res,stats)}
+ if(u.pathname==='/api/admin/option-flags'&&method==='GET')return json(res,db.prepare(`SELECT f.*,p.title,p.brand_name,(SELECT count(*) FROM products x WHERE x.option_group_id=f.option_group_id) member_count FROM option_group_flags f JOIN products p ON p.id=f.option_group_id WHERE f.dismissed_at IS NULL ORDER BY f.id DESC`).all());
+ if(u.pathname.match(/^\/api\/admin\/option-flags\/\d+\/dismiss$/)&&method==='POST'){db.prepare('UPDATE option_group_flags SET dismissed_at=CURRENT_TIMESTAMP WHERE id=?').run(+u.pathname.split('/')[4]);return json(res,{ok:true})}
  if(u.pathname==='/api/admin/audit'&&method==='GET')return json(res,db.prepare('SELECT * FROM audit_log ORDER BY id DESC LIMIT 100').all());
  return false;
 }

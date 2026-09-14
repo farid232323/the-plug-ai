@@ -15,7 +15,7 @@ module.exports=function createStorefrontCatalog({rootDir=__dirname}={}){
     const chassis=clean(u.searchParams.get('chassis'));
     const q=clean(u.searchParams.get('q'));
     const limit=Math.max(1,Math.min(2000,Number(u.searchParams.get('limit')||1000)));
-    const where=["lower(p.status)='active'"];const args=[];
+    const where=["lower(p.status)='active'","(p.option_group_id IS NULL OR p.is_group_primary=1)"];const args=[];
     if(brand){where.push('lower(p.brand_name)=lower(?)');args.push(brand)}
     if(category){where.push('lower(p.category)=lower(?)');args.push(category)}
     if(q){where.push('(p.title LIKE ? OR p.mfg_part_id LIKE ? OR p.the_plug_id LIKE ? OR p.brand_name LIKE ?)');const n='%'+q+'%';args.push(n,n,n,n)}
@@ -29,7 +29,9 @@ module.exports=function createStorefrontCatalog({rootDir=__dirname}={}){
     args.push(limit);
     const rows=db.prepare(`SELECT p.*,
       (SELECT url FROM product_images i WHERE i.product_id=p.id ORDER BY sort_order,id LIMIT 1) image,
-      (SELECT count(*) FROM fitments f WHERE f.product_id=p.id) fitment_count
+      (SELECT count(*) FROM fitments f WHERE f.product_id=p.id) fitment_count,
+      (SELECT MIN(price_sar) FROM products x WHERE x.option_group_id=coalesce(p.option_group_id,p.id)) group_min_price,
+      (SELECT COUNT(*) FROM products x WHERE x.option_group_id=coalesce(p.option_group_id,p.id)) option_count
       FROM products p WHERE ${where.join(' AND ')} ORDER BY p.updated_at DESC,p.id DESC LIMIT ?`).all(...args);
     return json(res,rows);
   }

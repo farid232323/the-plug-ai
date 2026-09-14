@@ -6,8 +6,11 @@
   const cleanChassis=v=>String(v||'').replace(/^Audi /,'').replace(/\s*\([^)]*\)$/,'').trim();
   const state=()=>({brand:localStorage.getItem('plug-selected-brand')||'',category:localStorage.getItem('plug-selected-category')||'',vehicle:readVehicle(),q:localStorage.getItem('plug-shop-search')||''});
   let rendering=false;
+  const tpOptStyle=document.createElement('style');
+  tpOptStyle.textContent=`.tp-option-count{font-size:12px;color:#5d9fbe;margin-top:4px}.tp-options{margin:14px 0}.tp-option-label{font-size:11px;font-weight:900;text-transform:uppercase;letter-spacing:.06em;color:#7b8790;margin-bottom:8px}.tp-opt-group{display:flex;flex-wrap:wrap;gap:8px}.tp-opt-btn{border:1px solid #d7dee3;background:#fff;color:#132135;padding:9px 14px;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer}.tp-opt-btn:hover{border-color:#8FC6E4}.tp-opt-btn.active{background:#132135;border-color:#132135;color:#fff}`;
+  document.head.appendChild(tpOptStyle);
 
-  function card(p){return `<article class="product-card api-card tp-functional-card" data-api-product="${p.id}"><div class="product-image"><img src="${esc(p.image||'assets/product-runningboard.png')}" alt="${esc(p.title)}"></div><div class="brandline">${esc(p.brand_name||'')}</div><h3>${esc(p.title||'Product')}</h3><div class="price"><strong>${money(p.price_sar)}</strong>${p.msrp_sar&&Number(p.msrp_sar)>Number(p.price_sar)?` <del>${money(p.msrp_sar)}</del>`:''}</div><button class="btn full api-open-product" type="button">Select options</button></article>`}
+  function card(p){return `<article class="product-card api-card tp-functional-card" data-api-product="${p.id}"><div class="product-image"><img src="${esc(p.image||'assets/product-runningboard.png')}" alt="${esc(p.title)}"></div><div class="brandline">${esc(p.brand_name||'')}</div><h3>${esc(p.title||'Product')}</h3><div class="price"><strong>${money(p.price_sar)}</strong>${p.msrp_sar&&Number(p.msrp_sar)>Number(p.price_sar)?` <del>${money(p.msrp_sar)}</del>`:''}</div>${p.option_count>1?`<div class="tp-option-count">${p.option_count} options from ${money(p.group_min_price)}</div>`:''}<button class="btn full api-open-product" type="button">Select options</button></article>`}
 
   async function fetchCatalog(){const s=state(),u=new URL('/api/storefront/products',location.origin);u.searchParams.set('limit','1500');if(s.brand)u.searchParams.set('brand',s.brand);if(s.category)u.searchParams.set('category',s.category);if(s.q)u.searchParams.set('q',s.q);if(s.vehicle){if(s.vehicle.make)u.searchParams.set('make',s.vehicle.make);if(s.vehicle.model)u.searchParams.set('model',s.vehicle.model);if(s.vehicle.chassis)u.searchParams.set('chassis',cleanChassis(s.vehicle.chassis))}const r=await fetch(u);if(!r.ok)throw new Error('Could not load storefront products');const j=await r.json();return Array.isArray(j)?j:[]}
 
@@ -21,6 +24,17 @@
       const title=$('h1',root);if(title)title.textContent=p.title||'';
       const price=$('.bigprice',root);if(price)price.textContent=money(p.price_sar);
       const line=$('.brandline',root);if(line)line.textContent='MFG: '+(p.mfg_part_id||'—')+' · The Plug ID: '+(p.the_plug_id||'—');
+      root.querySelector('.tp-options')?.remove();
+      if(Array.isArray(p.options)&&p.options.length>1){
+        const applyOption=opt=>{
+          if(line)line.textContent='MFG: '+(opt.mfg_part_id||'—')+' · The Plug ID: '+(opt.the_plug_id||'—');
+          if(price)price.textContent=money(opt.price_sar);
+          $$('.tp-opt-btn',root).forEach(b=>b.classList.toggle('active',String(b.dataset.optionId)===String(opt.id)));
+        };
+        const html=`<div class="tp-options"><div class="tp-option-label">Options</div><div class="tp-opt-group">${p.options.map(o=>`<button type="button" class="tp-opt-btn${o.id===p.id?' active':''}" data-option-id="${o.id}">${esc(o.option_label||'Option')} — ${money(o.price_sar)}</button>`).join('')}</div></div>`;
+        line?.insertAdjacentHTML('afterend',html);
+        $$('.tp-opt-btn',root).forEach(b=>b.onclick=()=>{const opt=p.options.find(o=>String(o.id)===b.dataset.optionId);if(opt)applyOption(opt)});
+      }
       const desc=$('p',root);if(desc)desc.textContent=p.short_description||p.description||'';
       const main=$('#product .gallery-main img');const imgs=(p.images||[]).filter(x=>x.url);if(main&&imgs[0]){main.src=imgs[0].url;main.alt=p.title||'Product image'}
       const thumbs=$('#product .thumbs');if(thumbs&&imgs.length){thumbs.innerHTML=imgs.map((x,i)=>`<button class="tp-gallery-thumb ${i===0?'active':''}" type="button" data-img="${esc(x.url)}"><img src="${esc(x.url)}" alt="${esc(x.alt_text||p.title||'Product image')}"></button>`).join('');$$('.tp-gallery-thumb',thumbs).forEach(b=>b.onclick=()=>{if(main)main.src=b.dataset.img})}
